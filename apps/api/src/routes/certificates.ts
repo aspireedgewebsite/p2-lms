@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { asyncRoute, fail } from '../lib/http.js';
 import { requireAuth, requirePlatform, requireStudent } from '../middleware/auth.js';
-import { certificateEligibility, certificateSnapshot, renderCertificate, templateInput } from '../lib/certificates.js';
+import { buildCertificateSnapshot, certificateEligibility, certificateSnapshot, renderCertificate, templateInput } from '../lib/certificates.js';
 const router = Router();
 const id = z.string().uuid();
 router.get('/verify/:id', rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false }), asyncRoute(async (req, res) => {
@@ -55,14 +55,60 @@ router.post('/admin/issue', requirePlatform, asyncRoute(async (req, res) => {
     if (!check.eligible && !input.exceptionReason) fail(409, 'NOT_ELIGIBLE', check.reasons.join(' '));
     const { template } = check;
     const created = await tx.certificate.create({ data: { userId: student.userId, courseId: input.courseId, issuedById: req.auth!.userId, exceptionReason: input.exceptionReason,
-      snapshot: { studentName: check.enrollment.user.name, courseTitle: check.enrollment.course.title, templateId: template.id, brandName: template.brandName, signatory: template.signatory, accentColor: template.accentColor, verificationOrigin: new URL(process.env.WEB_ORIGIN || 'http://localhost:5173').origin,
-        requirements: { requireAllLessons: template.requireAllLessons, requireQuizzes: template.requireQuizzes, requireAssignments: template.requireAssignments, assignmentPassPercent: template.assignmentPassPercent } },
+      snapshot: buildCertificateSnapshot(check.enrollment.user.name, check.enrollment.course.title, template),
     } });
     await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: input.exceptionReason ? 'CERTIFICATE_ISSUED_EXCEPTION' : 'CERTIFICATE_ISSUED', entityType: 'Certificate', entityId: created.id, metadata: { reasons: check.reasons, exceptionReason: input.exceptionReason || null, templateId: template.id } } });
     return created;
   }, { isolationLevel: 'Serializable' });
   res.status(201).json({ data: certificate });
 }));
+const manualTemplateId = '3cd4ed29-19cd-4cf0-91ec-d4b6f31ef070';
+
+router.post('/admin/issue-manual', requirePlatform, asyncRoute(async (req, res) => {
+  const { student: identifier, courseId } = z.object({
+    student: z.string().trim().min(1).max(254),
+    courseId: id,
+  }).strict().parse(req.body);
+  const actorId = req.auth!.userId;
+  const certificate = await prisma.$transaction(async tx => {
+    const student = await tx.studentAccount.findFirst({
+      where: { OR: [{ studentCode: identifier.toUpperCase() }, { user: { email: identifier.toLowerCase() } }] },
+      select: { userId: true, status: true, user: { select: { name: true } } },
+    });
+    if (!student) fail(404, 'STUDENT_NOT_FOUND', 'No student matches that ID or email address.');
+    if (student.status !== 'ACTIVE') fail(409, 'STUDENT_INACTIVE', 'Enable the student account before issuing a certificate.');
+    const course = await tx.course.findFirst({
+      where: { id: courseId, tenantId: null },
+      select: { title: true, certificateTemplate: true },
+    });
+    if (!course) fail(404, 'COURSE_NOT_FOUND', 'Course not found.');
+    const existing = await tx.certificate.findUnique({ where: { userId_courseId: { userId: student.userId, courseId } } });
+    if (existing?.revokedAt) fail(409, 'CERTIFICATE_REVOKED', 'The existing certificate was revoked.');
+    if (existing) return existing;
+
+    const template = course.certificateTemplate ?? await tx.certificateTemplate.upsert({
+      where: { id: manualTemplateId },
+      update: {},
+      create: {
+        id: manualTemplateId, name: 'Standard Aspireedge certificate', brandName: 'Aspireedge Pvt. Ltd.',
+        signatory: 'Aspireedge', accentColor: '#0752cc', requireAllLessons: false, requireQuizzes: false,
+        requireAssignments: false, assignmentPassPercent: 70,
+      },
+    });
+    const reason = 'Certificate granted directly by a platform administrator.';
+    const record = await tx.certificate.create({ data: {
+      userId: student.userId, courseId, issuedById: actorId, exceptionReason: reason,
+      snapshot: buildCertificateSnapshot(student.user.name, course.title, template),
+    } });
+    await tx.auditLog.create({ data: {
+      actorId, action: 'CERTIFICATE_ISSUED_MANUAL', entityType: 'Certificate', entityId: record.id,
+      metadata: { reason, templateId: template.id },
+    } });
+    return record;
+  }, { isolationLevel: 'Serializable' });
+  res.status(201).json({ data: certificate });
+}));
+
 router.post('/admin/:id/revoke', requirePlatform, asyncRoute(async (req, res) => {
   const input = z.object({ reason: z.string().trim().min(10).max(1000) }).strict().parse(req.body), certificateId = id.parse(req.params.id);
   await prisma.$transaction(async tx => {

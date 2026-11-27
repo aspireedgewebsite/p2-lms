@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth.js';
+import devEmailRoutes from './routes/dev-email.js';
+import paymentRoutes, { razorpayWebhook } from './routes/payments.js';
 import mediaRoutes from './routes/media.js';
 import certificateRoutes from './routes/certificates.js';
 import assessmentRoutes from './routes/assessments.js';
@@ -17,10 +19,17 @@ app.disable('x-powered-by');
 app.use(helmet());
 const webOrigin = process.env.WEB_ORIGIN || 'http://localhost:5173';
 app.use(cors({ origin: webOrigin, credentials: true }));
+app.post('/api/v1/payments/razorpay/webhook', express.raw({ type: 'application/json', limit: '256kb' }), razorpayWebhook);
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use('/api/v1/auth/register', rateLimit({ windowMs: 60 * 60 * 1000, limit: 12, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use('/api/v1/account', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false }));
+const otpLimit = (limit: number) => rateLimit({
+  windowMs: 15 * 60 * 1000, limit, standardHeaders: 'draft-7', legacyHeaders: false,
+  message: { error: { code: 'OTP_RATE_LIMIT', message: 'Too many requests. Please try again later.' } },
+});
+app.use('/api/v1/auth/verify-email', otpLimit(30));
+app.use('/api/v1/auth/resend-otp', otpLimit(10));
 app.use('/api/v1/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 15, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use((req, _res, next) => {
   // Origin validation protects public authentication mutations and supplements CSRF tokens.
@@ -35,11 +44,15 @@ app.use((req, res, next) => {
   if (req.path === '/api/v1/auth/login' || req.path === '/api/v1/auth/invitations/accept') return next();
   return requireCsrf(req, res, next);
 });
+if (process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_EMAIL_TEST === 'true') {
+  app.use('/api/v1/dev', devEmailRoutes);
+}
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/account', accountRoutes);
 app.use('/api/v1/media', mediaRoutes);
 app.use('/api/v1/certificates', certificateRoutes);
 app.use('/api/v1/assessments', assessmentRoutes);
+app.use('/api/v1/payments/razorpay', otpLimit(30), paymentRoutes);
 app.use('/api/v1/academy', academyRoutes);
 app.use((_req, _res, next) => next(new HttpError(404, 'NOT_FOUND', 'Route not found.')));
 app.use(errorHandler);

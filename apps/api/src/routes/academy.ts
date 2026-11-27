@@ -1,3 +1,7 @@
+import { CourseTrack, type Prisma } from '@prisma/client';
+import { razorpayConfig } from '../lib/razorpay.js';
+import { registerSchema, registerStudent, studentDetails } from '../lib/student-registration.js';
+import { studentPhoneKey } from '../lib/student-phone.js';
 import { enrollmentActive, enrollmentStatus } from '../lib/enrollment.js';
 import analyticsRoutes from './analytics.js';
 import { Router } from 'express';
@@ -15,6 +19,7 @@ const courseInput = z.object({
   description: z.string().trim().max(10000).optional().nullable(),
   previewText: z.string().trim().max(2000).optional().nullable(),
   category: z.string().trim().max(80).optional().nullable(),
+  track: z.nativeEnum(CourseTrack).optional(),
   level: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']).default('BEGINNER'),
   pricePaise: z.number().int().min(0).max(100000000),
   durationHours: z.number().int().positive().max(10000).optional().nullable(),
@@ -44,7 +49,7 @@ const grantInput = z.object({
     ctx.addIssue({ code: 'custom', path: ['paymentMethod'], message: 'Payment method and amount required for manual payment.' });
   }
 });
-const publicCourse = { id: true, title: true, description: true, previewText: true, category: true,
+const publicCourse = { id: true, title: true, description: true, previewText: true, category: true, track: true,
   instructor: true, learningObjectives: true, level: true, pricePaise: true, durationHours: true, thumbnailUrl: true, status: true } as const;
 const lessonOutline = { id: true, title: true, kind: true, position: true, isPreview: true } as const;
 
@@ -56,10 +61,11 @@ router.get('/categories', asyncRoute(async (_req, res) => {
 router.get('/courses', asyncRoute(async (req, res) => {
   const { page, pageSize, skip, q } = pageInput(req.query);
   const category = typeof req.query.category === 'string' ? req.query.category.slice(0, 80) : '';
-  const where = { tenantId: null, status: 'PUBLISHED' as const, ...(category ? { category } : {}), ...(q ? { OR: [{ title: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] } : {}) };
+  const track = z.nativeEnum(CourseTrack).optional().parse(req.query.track);
+  const where = { tenantId: null, status: 'PUBLISHED' as const, ...(track ? { track } : {}), ...(category ? { category } : {}), ...(q ? { OR: [{ title: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] } : {}) };
   const [total, courses] = await prisma.$transaction([
     prisma.course.count({ where }),
-    prisma.course.findMany({ where, select: publicCourse, orderBy: { createdAt: 'desc' }, skip, take: pageSize }),
+    prisma.course.findMany({ where, select: publicCourse, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip, take: pageSize }),
   ]);
   sendList(res, courses, total, page, pageSize);
 }));
@@ -69,7 +75,7 @@ router.get('/courses/:id', asyncRoute(async (req, res) => {
     select: { ...publicCourse, modules: { where: { archivedAt: null }, orderBy: { position: 'asc' }, select: { id: true, title: true, position: true,
       lessons: { where: { archivedAt: null }, orderBy: { position: 'asc' }, select: lessonOutline } } } } });
   if (!course) fail(404, 'COURSE_NOT_FOUND', 'Course not found.');
-  res.json({ data: course });
+  res.json({ data: { ...course, onlineCheckout: Boolean(razorpayConfig()) } });
 }));
 router.get('/courses/:id/preview/:lessonId', asyncRoute(async (req, res) => {
   const courseId = id.parse(req.params.id);
@@ -87,14 +93,14 @@ router.get('/student/dashboard', requireStudent, asyncRoute(async (req, res) => 
   const userId = req.auth!.userId;
   const [student, enrollments, orders] = await Promise.all([
     prisma.studentAccount.findUniqueOrThrow({ where: { userId }, select: { studentCode: true } }),
-    prisma.directEnrollment.findMany({ where: { userId }, include: { course: { select: { id: true, title: true, thumbnailUrl: true, status: true, modules: { where: { archivedAt: null }, include: { lessons: { where: { archivedAt: null }, select: { id: true } } } } } }, progress: { select: { lessonId: true } } }, orderBy: { createdAt: 'desc' } }),
+    prisma.directEnrollment.findMany({ where: { userId }, include: { course: { select: { id: true, title: true, thumbnailUrl: true, status: true, track: true, modules: { where: { archivedAt: null }, include: { lessons: { where: { archivedAt: null }, select: { id: true } } } } } }, progress: { select: { lessonId: true } } }, orderBy: { createdAt: 'desc' } }),
     prisma.courseOrder.count({ where: { userId, status: 'PENDING' } }),
   ]);
   const courses = enrollments.map(e => {
     const totalLessons = e.course.modules.reduce((sum, m) => sum + m.lessons.length, 0);
     const visibleIds = new Set(e.course.modules.flatMap(m => m.lessons.map(l => l.id)));
     const completedLessons = e.progress.filter(p => visibleIds.has(p.lessonId)).length;
-    return { id: e.course.id, title: e.course.title, thumbnailUrl: e.course.thumbnailUrl, accessStatus: enrollmentStatus(e),
+    return { id: e.course.id, title: e.course.title, thumbnailUrl: e.course.thumbnailUrl, track: e.course.track, accessStatus: enrollmentStatus(e),
       source: e.source, lastActivityAt: e.lastActivityAt, enrolledAt: e.createdAt, totalLessons, completedLessons,
       progressPercent: totalLessons ? Math.min(100, Math.round(completedLessons / totalLessons * 100)) : 0 };
   });
@@ -155,7 +161,7 @@ router.post('/student/orders', requireStudent, asyncRoute(async (req, res) => {
   const course = await prisma.course.findFirst({ where: { id: courseId, tenantId: null, status: 'PUBLISHED' } });
   if (!course) fail(404, 'COURSE_NOT_FOUND', 'Course not found.');
   if (await prisma.directEnrollment.findFirst({ where: { userId, courseId, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } })) fail(409, 'ALREADY_ENROLLED', 'You already have access to this course.');
-  const pending = await prisma.courseOrder.findFirst({ where: { userId, courseId, status: 'PENDING' }, orderBy: { createdAt: 'desc' } });
+  const pending = await prisma.courseOrder.findFirst({ where: { userId, courseId, status: 'PENDING', OR: [{ paymentMethod: null }, { paymentMethod: { not: 'RAZORPAY' } }] }, orderBy: { createdAt: 'desc' } });
   if (pending) fail(409, 'ORDER_PENDING', 'A purchase request is already awaiting review.');
   const order = await prisma.courseOrder.create({ data: { userId, courseId, amountPaise: course.pricePaise, paymentMethod, paymentReference, status: 'PENDING' } });
   res.status(201).json({ data: { id: order.id, status: order.status, message: 'Purchase request submitted. Admin will verify payment before access is enabled.' } });
@@ -165,7 +171,7 @@ router.use('/admin', requirePlatform);
 router.use('/admin', analyticsRoutes);
 router.get('/admin/dashboard', asyncRoute(async (_req, res) => {
   const [students, courses, publishedCourses, activeEnrollments, manualEnrollments, pendingOrders, paidOrders] = await Promise.all([
-    prisma.studentAccount.count(), prisma.course.count({ where: { tenantId: null } }),
+    prisma.studentAccount.count({ where: { status: { not: 'ARCHIVED' } } }), prisma.course.count({ where: { tenantId: null } }),
     prisma.course.count({ where: { tenantId: null, status: 'PUBLISHED' } }),
     prisma.directEnrollment.count({ where: { status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], course: { tenantId: null } } }),
     prisma.directEnrollment.count({ where: { status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], source: 'MANUAL_PAYMENT', course: { tenantId: null } } }),
@@ -177,16 +183,20 @@ router.get('/admin/dashboard', asyncRoute(async (_req, res) => {
 }));
 router.get('/admin/students', asyncRoute(async (req, res) => {
   const { page, pageSize, skip, q } = pageInput(req.query);
-  const where = q ? { OR: [{ studentCode: { contains: q, mode: 'insensitive' as const } }, { user: { OR: [
+  const archived = z.enum(['true', 'false']).default('false').parse(req.query.archived);
+  const where: Prisma.StudentAccountWhereInput = {
+    status: archived === 'true' ? 'ARCHIVED' : { not: 'ARCHIVED' },
+    ...(q ? { OR: [{ phone: { contains: q } }, { studentCode: { contains: q, mode: 'insensitive' as const } }, { user: { OR: [
     { email: { contains: q, mode: 'insensitive' as const } }, { name: { contains: q, mode: 'insensitive' as const } },
-  ] } }] } : {};
+  ] } }] } : {}),
+  };
   const [total, students] = await prisma.$transaction([
     prisma.studentAccount.count({ where }), prisma.studentAccount.findMany({ where, skip, take: pageSize,
-      orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, name: true, email: true,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], include: { user: { select: { id: true, name: true, email: true, emailVerifiedAt: true,
         directEnrollments: { where: { course: { tenantId: null } }, include: { course: { select: { title: true, modules: { where: { archivedAt: null }, include: { lessons: { where: { archivedAt: null }, select: { id: true } } } } } }, progress: { select: { lessonId: true } } } } } } } }),
   ]);
   sendList(res, students.map(s => ({ id: s.id, userId: s.userId, studentCode: s.studentCode, status: s.status,
-    name: s.user.name, email: s.user.email, phone: s.phone, enrolledCourses: s.user.directEnrollments.map(e => {
+    name: s.user.name, email: s.user.email, emailVerified: Boolean(s.user.emailVerifiedAt), phone: s.phone, gender: s.gender, enrolledCourses: s.user.directEnrollments.map(e => {
       const lessonCount = e.course.modules.reduce((count, m) => count + m.lessons.length, 0);
       const visibleIds = new Set(e.course.modules.flatMap(m => m.lessons.map(l => l.id)));
       const completed = e.progress.filter(p => visibleIds.has(p.lessonId)).length;
@@ -194,19 +204,69 @@ router.get('/admin/students', asyncRoute(async (req, res) => {
         completed, total: lessonCount, progressPercent: lessonCount ? Math.round(completed / lessonCount * 100) : 0 };
     }) })), total, page, pageSize);
 }));
+router.post('/admin/students', asyncRoute(async (req, res) => {
+  const student = await registerStudent(registerSchema.parse(req.body), req.auth!.userId);
+  res.status(201).json({ data: student });
+}));
+
+const studentUpdate = studentDetails.partial().extend({
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+}).refine(value => Object.keys(value).length > 0, 'Provide at least one change.');
+
+async function updateStudent(studentId: string, actorId: string, data: z.infer<typeof studentUpdate> | { status: 'ARCHIVED' }) {
+  return prisma.$transaction(async tx => {
+    const student = await tx.studentAccount.findUnique({
+      where: { id: studentId }, include: { user: { select: { email: true } } },
+    });
+    if (!student) fail(404, 'STUDENT_NOT_FOUND', 'Student account not found.');
+    const details = 'status' in data && data.status === 'ARCHIVED' ? {} : data as z.infer<typeof studentUpdate>;
+    const phoneKey = details.phone === undefined ? undefined : studentPhoneKey(details.phone);
+    if (phoneKey && phoneKey !== student.phoneKey && await tx.studentAccount.findFirst({
+      where: { phoneKey, id: { not: studentId } }, select: { id: true },
+    })) fail(409, 'PHONE_TAKEN', 'This mobile number already belongs to another account.');
+    const emailChanged = details.email !== undefined && details.email !== student.user.email;
+    if (emailChanged && await tx.user.findUnique({ where: { email: details.email }, select: { id: true } })) {
+      fail(409, 'EMAIL_TAKEN', 'This email already belongs to another account.');
+    }
+    if (details.name !== undefined || emailChanged) await tx.user.update({
+      where: { id: student.userId },
+      data: { name: details.name, ...(emailChanged ? {
+        email: details.email, emailVerifiedAt: null, emailOtpHash: null,
+        emailOtpExpiresAt: null, emailOtpAttempts: 0, emailOtpLastSentAt: null,
+      } : {}) },
+    });
+    if (emailChanged || data.status === 'ARCHIVED') {
+      await tx.accountToken.updateMany({ where: { userId: student.userId, usedAt: null }, data: { usedAt: new Date() } });
+    }
+    const record = await tx.studentAccount.update({
+      where: { id: studentId }, data: {
+        status: data.status, phone: details.phone === '' ? null : details.phone, phoneKey, gender: details.gender,
+      },
+    });
+    if (emailChanged || data.status === 'DISABLED' || data.status === 'ARCHIVED') {
+      await tx.session.deleteMany({ where: { userId: student.userId } });
+    }
+    await tx.auditLog.create({ data: {
+      actorId, action: data.status === 'ARCHIVED' ? 'STUDENT_ARCHIVED' : data.status ? 'STUDENT_STATUS' : 'STUDENT_UPDATED',
+      entityType: 'StudentAccount', entityId: studentId,
+      metadata: { ...(data.status ? { status: data.status } : {}), emailChanged },
+    } });
+    return { id: record.id, status: record.status };
+  }, { isolationLevel: 'Serializable' });
+}
+
 router.patch('/admin/students/:id', asyncRoute(async (req, res) => {
-  const status = z.enum(['ACTIVE', 'DISABLED']).parse(req.body?.status);
-  const record = await prisma.$transaction(async tx => {
-    const student = await tx.studentAccount.update({ where: { id: id.parse(req.params.id) }, data: { status } });
-    if (status === 'DISABLED') await tx.session.deleteMany({ where: { userId: student.userId } });
-    await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: 'STUDENT_STATUS', entityType: 'StudentAccount', entityId: student.id, metadata: { status } } });
-    return student;
-  });
-  res.json({ data: { id: record.id, status: record.status } });
+  const data = await updateStudent(id.parse(req.params.id), req.auth!.userId, studentUpdate.parse(req.body));
+  res.json({ data });
+}));
+router.delete('/admin/students/:id', asyncRoute(async (req, res) => {
+  const data = await updateStudent(id.parse(req.params.id), req.auth!.userId, { status: 'ARCHIVED' });
+  res.json({ data });
 }));
 router.get('/admin/courses', asyncRoute(async (req, res) => {
   const { page, pageSize, skip, q } = pageInput(req.query);
-  const where = { tenantId: null, ...(q ? { title: { contains: q, mode: 'insensitive' as const } } : {}) };
+  const track = z.nativeEnum(CourseTrack).optional().parse(req.query.track);
+  const where = { tenantId: null, ...(track ? { track } : {}), ...(q ? { title: { contains: q, mode: 'insensitive' as const } } : {}) };
   const [total, courses] = await prisma.$transaction([prisma.course.count({ where }),
     prisma.course.findMany({ where, skip, take: pageSize, orderBy: { createdAt: 'desc' },
       include: { _count: { select: { directEnrollments: true, modules: true } } } })]);
@@ -321,6 +381,7 @@ router.post('/admin/orders/:id/approve', asyncRoute(async (req, res) => {
   const order = await prisma.$transaction(async tx => {
     const order = await tx.courseOrder.findFirst({ where: { id: orderId, course: { tenantId: null } } });
     if (!order) fail(404, 'ORDER_NOT_FOUND', 'Order not found.');
+    if (order.paymentMethod === 'RAZORPAY') fail(409, 'ONLINE_ORDER', 'Online orders are confirmed by Razorpay.');
     if (order.status !== 'PENDING') fail(409, 'ORDER_NOT_PENDING', 'Order was already processed.');
     const current = await tx.directEnrollment.findUnique({ where: { userId_courseId: { userId: order.userId, courseId: order.courseId } } });
     if (current && enrollmentActive(current)) fail(409, 'ALREADY_ENROLLED', 'Student already has course access. Resolve the payment request separately.');
@@ -340,6 +401,7 @@ router.post('/admin/orders/:id/reject', asyncRoute(async (req, res) => {
   const result = await prisma.$transaction(async tx => {
     const order = await tx.courseOrder.findFirst({ where: { id: orderId, course: { tenantId: null } } });
     if (!order) fail(404, 'ORDER_NOT_FOUND', 'Order not found.');
+    if (order.paymentMethod === 'RAZORPAY') fail(409, 'ONLINE_ORDER', 'Online orders are managed by Razorpay.');
     const updated = await tx.courseOrder.updateMany({ where: { id: orderId, status: 'PENDING' }, data: { status: 'CANCELLED', note: reason, verifiedById: req.auth!.userId, verifiedAt: new Date() } });
     if (!updated.count) fail(409, 'ORDER_ALREADY_PROCESSED', 'Order already processed.');
     await tx.auditLog.create({ data: { actorId: req.auth!.userId, action: 'OFFLINE_ORDER_REJECT', entityType: 'CourseOrder', entityId: orderId, metadata: { reason } } });

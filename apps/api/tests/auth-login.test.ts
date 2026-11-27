@@ -39,3 +39,18 @@ describe('admin authentication', () => {
     expect(prisma.session.create).not.toHaveBeenCalled();
   });
 });
+
+describe('student registration', () => {
+  it.each([undefined, 'INVALID'])('requires a valid gender selection (%s)', async gender => {
+    const response = await request(app).post('/api/v1/auth/register').send({
+      name: 'Test Student',
+      phone: '9876543210',
+      email: 'student@example.invalid',
+      password: 'test-only-long-password',
+      confirmPassword: 'test-only-long-password',
+      gender,
+    });
+    expect(response.status).toBe(422);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+});

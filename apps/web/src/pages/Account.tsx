@@ -1,8 +1,9 @@
+import { StudentGenderField, type StudentGender } from '../components/StudentGenderField';
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, messageFromError, type ApiOne } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { Alert, PageTitle } from '../components/UI';
+import { Alert, Brand, PageTitle } from '../components/UI';
 
 export function AccountLink({ mode }: { mode: 'forgot' | 'reset' | 'verify' }) {
   const [email, setEmail] = useState('');
@@ -28,7 +29,7 @@ export function AccountLink({ mode }: { mode: 'forgot' | 'reset' | 'verify' }) {
     } catch (err) { setError(messageFromError(err)); } finally { setBusy(false); }
   }
   return <div className="academy-auth-alone"><section className="academy-auth-card">
-    <Link to="/">AspireEdge Academy</Link>
+    <Link to="/"><Brand/></Link>
     <h1>{mode === 'forgot' ? 'Forgot password' : mode === 'reset' ? 'Set a new password' : 'Verify your email'}</h1>
     {error && <Alert message={error}/>}{message && <Alert success message={message}/>}
     {!message && <form className="auth-form" onSubmit={submit}>
@@ -41,29 +42,32 @@ export function AccountLink({ mode }: { mode: 'forgot' | 'reset' | 'verify' }) {
   </section></div>;
 }
 
-type ProfileData = { name: string; email: string; emailVerifiedAt: string | null; directStudent: { phone: string | null; studentCode: string } | null };
+type ProfileData = { name: string; email: string; emailVerifiedAt: string | null; directStudent: { phone: string | null; studentCode: string; gender: StudentGender | null } | null };
 export function Profile() {
   const { refresh } = useAuth(); const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [gender, setGender] = useState<StudentGender | ''>('');
   const [name, setName] = useState(''); const [phone, setPhone] = useState('');
   const [currentPassword, setCurrentPassword] = useState(''); const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState('');
   const [notice, setNotice] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  useEffect(() => { api<ApiOne<ProfileData>>('/account/profile').then(({ data }) => { setProfile(data); setName(data.name); setPhone(data.directStudent?.phone || ''); }).catch(e => setError(messageFromError(e))); }, []);
+  useEffect(() => { api<ApiOne<ProfileData>>('/account/profile').then(({ data }) => { setProfile(data); setName(data.name); setGender(data.directStudent?.gender ?? ''); setPhone(data.directStudent?.phone || ''); }).catch(e => setError(messageFromError(e))); }, []);
   async function action(fn: () => Promise<void>) { setBusy(true); setError(''); setNotice(''); try { await fn(); } catch (e) { setError(messageFromError(e)); } finally { setBusy(false); } }
-  async function save(e: FormEvent) { e.preventDefault(); await action(async () => { await api('/account/profile', { method: 'PATCH', body: JSON.stringify({ name, ...(profile?.directStudent ? { phone } : {}) }) }); await refresh(); setNotice('Profile saved.'); }); }
+  async function save(e: FormEvent) { e.preventDefault(); await action(async () => { await api('/account/profile', { method: 'PATCH', body: JSON.stringify({ name, ...(profile?.directStudent ? { phone, ...(gender ? { gender } : {}) } : {}) }) }); await refresh(); setNotice('Profile saved.'); }); }
   async function change(e: FormEvent) { e.preventDefault(); await action(async () => { if (password !== confirm) throw new Error('Passwords must match.'); await api('/account/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, password }) }); await refresh(); navigate('/login', { replace: true }); }); }
   return <><PageTitle kicker="YOUR ACCOUNT" title="Profile & security" description="Manage your details and keep your account secure."/>
     {error && <Alert message={error}/>} {notice && <Alert success message={notice}/>}
-    {profile && <div className="academy-panel"><p><strong>{profile.email}</strong> · {profile.emailVerifiedAt ? 'Verified' : 'Email not verified'}</p>
+    {profile && <div className="workspace-profile-grid">
+      <section className="academy-panel"><h2>Personal details</h2>
+      <p className="workspace-profile-email"><strong>{profile.email}</strong><span>{profile.emailVerifiedAt ? 'Verified' : 'Email not verified'}</span></p>
       {!profile.emailVerifiedAt && <button className="academy-small-button" disabled={busy} onClick={() => void action(async () => { await api('/account/verification-email', { method: 'POST' }); setNotice('Verification email requested.'); })}>Send verification email</button>}
       {profile.directStudent && <p>Student ID: {profile.directStudent.studentCode}</p>}
       <form className="auth-form" onSubmit={save}><label>Full name<input required minLength={2} maxLength={120} value={name} onChange={e => setName(e.target.value)}/></label>
-        {profile.directStudent && <label>Phone number<input maxLength={25} value={phone} onChange={e => setPhone(e.target.value)}/></label>}
-        <button className="primary-button" disabled={busy}>Save profile</button></form>
-      <h2>Change password</h2><p>Changing your password signs you out on all devices.</p>
+        {profile.directStudent && <><label>Phone number<input type="tel" autoComplete="tel" maxLength={25} value={phone} onChange={e => setPhone(e.target.value)}/></label><StudentGenderField value={gender} onChange={setGender}/></>}
+        <button className="primary-button" disabled={busy}>Save profile</button></form></section>
+      <section className="academy-panel"><h2>Change password</h2><p>Changing your password signs you out on all devices.</p>
       <form className="auth-form" onSubmit={change}><label>Current password<input required type="password" autoComplete="current-password" maxLength={128} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)}/></label>
         <label>New password<input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={password} onChange={e => setPassword(e.target.value)}/></label>
         <label>Confirm new password<input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={confirm} onChange={e => setConfirm(e.target.value)}/></label>
-        <button className="primary-button" disabled={busy}>Change password & sign out</button></form>
+        <button className="primary-button" disabled={busy}>Change password & sign out</button></form></section>
     </div>}</>;
 }

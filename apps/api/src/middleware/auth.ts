@@ -24,10 +24,11 @@ export const loadSession: RequestHandler = async (req, _res, next) => {
     if (!raw || typeof raw !== 'string') { next(); return; }
     const session = await prisma.session.findUnique({
       where: { tokenHash: sha256(raw) },
-      include: { user: { select: { id: true, platformRole: true, directStudent: { select: { status: true } } } }, tenant: { select: { status: true } } },
+      include: { user: { select: { id: true, platformRole: true, emailVerifiedAt: true, directStudent: { select: { status: true } } } }, tenant: { select: { status: true } } },
     });
     if (!session || session.expiresAt <= new Date()) { next(); return; }
     if (session.tenantId && session.tenant?.status !== 'ACTIVE') { next(); return; }
+    if (session.user.platformRole !== 'SUPER_ADMIN' && !session.user.emailVerifiedAt) { next(); return; }
     if (!session.tenantId && session.user.platformRole !== 'SUPER_ADMIN' && session.user.directStudent?.status !== 'ACTIVE') { next(); return; }
     let roles: MembershipRole[] = [];
     if (session.tenantId) {

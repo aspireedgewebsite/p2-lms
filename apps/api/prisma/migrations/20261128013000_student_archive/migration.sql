@@ -1,0 +1,1 @@
+ALTER TYPE "DirectStudentStatus" ADD VALUE IF NOT EXISTS 'ARCHIVED';

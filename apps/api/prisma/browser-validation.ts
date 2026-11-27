@@ -18,7 +18,7 @@ try {
   const {PrismaClient}=await import('@prisma/client');const db=new PrismaClient();
   const passwordHash=await argon2.hash('browser-fixture-only-2026');
   await db.user.create({data:{email:'browser-admin@example.invalid',name:'Browser Test Administrator',platformRole:'SUPER_ADMIN',passwordHash}});
-  const learner=await db.user.create({data:{email:'browser-student@example.invalid',name:'Browser Test Learner',passwordHash,directStudent:{create:{studentCode:'STUBROWSER2026'}}}});
+  const learner=await db.user.create({data:{email:'browser-student@example.invalid',name:'Browser Test Learner',passwordHash,emailVerifiedAt:new Date(),directStudent:{create:{studentCode:'STUBROWSER2026'}}}});
   const course=await db.course.create({data:{title:'Browser validation course',status:'PUBLISHED',modules:{create:{title:'Introduction',lessons:{create:{title:'Welcome lesson',content:'Complete this sample lesson to validate progress.'}}}}}});
   await db.directEnrollment.create({data:{userId:learner.id,courseId:course.id,source:'COMPLIMENTARY'}});
   await db.quiz.create({data:{courseId:course.id,title:'Browser validation quiz',published:true,questions:[{id:randomUUID(),prompt:'Which option completes this test?',kind:'MCQ',choices:['Correct answer','Incorrect answer'],correctOptions:[0]}]}});

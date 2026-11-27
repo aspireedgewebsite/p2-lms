@@ -79,6 +79,10 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   emailVerifiedAt DateTime?
+  emailOtpHash String?
+  emailOtpExpiresAt DateTime?
+  emailOtpAttempts Int @default(0)
+  emailOtpLastSentAt DateTime?
   authTokens      AccountToken[]
   certificates    Certificate[]
   quizAttempts    QuizAttempt[]
@@ -227,6 +231,12 @@ model Internship {
   @@index([tenantId, status])
 }
 
+enum CourseTrack {
+  SKILL_BOOST
+  PROFESSIONAL_MASTERY
+  CAREER_LAUNCH
+}
+
 model Course {
   id          String @id @default(uuid())
   tenantId    String?
@@ -235,6 +245,7 @@ model Course {
   level       String @default("BEGINNER")
   status      CourseStatus @default(DRAFT)
   category    String?
+  track       CourseTrack @default(SKILL_BOOST)
   thumbnailUrl String?
   pricePaise  Int @default(0)
   durationHours Int?
@@ -254,6 +265,7 @@ model Course {
   quizzes Quiz[]
   assignments Assignment[]
   @@index([tenantId, status])
+  @@index([tenantId, status, track])
 }
 
 model Batch {
@@ -317,6 +329,7 @@ model AuditLog {
 enum DirectStudentStatus {
   ACTIVE
   DISABLED
+  ARCHIVED
 }
 enum LessonKind {
   PDF
@@ -339,10 +352,18 @@ enum DirectOrderStatus {
   CANCELLED
 }
 enum DirectPaymentMethod {
+  RAZORPAY
   UPI
   BANK_TRANSFER
   CASH
   OTHER
+}
+
+enum StudentGender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
 }
 
 model StudentAccount {
@@ -350,10 +371,14 @@ model StudentAccount {
   userId      String @unique
   studentCode String @unique
   phone       String?
+  gender      StudentGender?
+  phoneKey    String?
   status      DirectStudentStatus @default(ACTIVE)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([phoneKey])
 }
 
 model CourseModule {
@@ -424,6 +449,9 @@ model CourseOrder {
   status           DirectOrderStatus @default(PENDING)
   paymentMethod    DirectPaymentMethod?
   paymentReference String?
+  razorpayOrderId  String? @unique
+  razorpayPaymentId String? @unique
+  checkoutKey      String? @unique
   note             String?
   verifiedById     String?
   verifiedAt       DateTime?

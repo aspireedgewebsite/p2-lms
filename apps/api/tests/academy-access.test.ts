@@ -22,7 +22,7 @@ beforeEach(() => {
   db.session.findUnique.mockResolvedValue({
     userId: 'student-a', tenantId: null, csrfToken: 'known-csrf',
     expiresAt: new Date(Date.now() + 60000),
-    user: { platformRole: 'USER', directStudent: { status: 'ACTIVE' } }, tenant: null,
+    user: { platformRole: 'USER', emailVerifiedAt: new Date(), directStudent: { status: 'ACTIVE' } }, tenant: null,
   });
   db.directEnrollment.findUnique.mockResolvedValue(null);
 });

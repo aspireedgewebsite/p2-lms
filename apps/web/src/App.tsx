@@ -9,8 +9,9 @@ import { StudentProfile, EnrollmentReport } from './pages/Analytics';
 import { AdminCertificates, StudentCertificates, VerifyCertificate } from './pages/Certificates';
 import { AdminAssessments, StudentAssessments } from './pages/Assessments';
 import { AccountLink, Profile } from './pages/Account';
+import { VerifyEmail } from './pages/VerifyEmail';
 import { Login, Register } from './pages/Access';
-import { Landing, Catalog, CourseDetails } from './pages/Public';
+import { Landing, Catalog, CourseDetails, PublicHeader, PublicFooter } from './pages/Public';
 import { AdminDashboard, AdminCourses, AdminStudents, AdminOrders } from './pages/AcademyAdmin';
 import { StudentDashboard, StudentLearn, StudentOrders } from './pages/AcademyStudent';
 function Guard({ role }: { role: 'PLATFORM' | 'STUDENT' }) {
@@ -33,7 +34,7 @@ export default function App() {
    <Route path="/login" element={<Login/>}/>
    <Route path="/forgot-password" element={<AccountLink mode="forgot"/>}/>
    <Route path="/reset-password" element={<AccountLink mode="reset"/>}/>
-   <Route path="/verify-email" element={<AccountLink mode="verify"/>}/>
+   <Route path="/verify-email" element={<VerifyEmail/>}/>
    <Route path="/register" element={<Register/>}/>
    <Route element={<Guard role="PLATFORM"/>}>
      <Route path="/admin/profile" element={<Profile/>}/>
@@ -53,10 +54,11 @@ export default function App() {
      <Route path="/student/assessments" element={<StudentAssessments/>}/>
      <Route path="/student/profile" element={<Profile/>}/>
      <Route path="/student" element={<StudentDashboard/>}/>
-     <Route path="/student/courses" element={<StudentDashboard/>}/>
+     <Route path="/student/courses" element={<Catalog student/>}/>
+     <Route path="/student/courses/:id" element={<CourseDetails student/>}/>
      <Route path="/student/learn/:id" element={<StudentLearn/>}/>
      <Route path="/student/orders" element={<StudentOrders/>}/>
    </Route>
-   <Route path="*" element={<div className="academy-container"><h1>Page not found</h1><a href="/">Return home</a></div>}/>
+   <Route path="*" element={<><PublicHeader/><main className="academy-container academy-section public-content"><h1>Page not found</h1><a className="primary-button inline-button" href="/">Return home</a></main><PublicFooter/></>}/>
  </Routes></AuthProvider></BrowserRouter>;
 }

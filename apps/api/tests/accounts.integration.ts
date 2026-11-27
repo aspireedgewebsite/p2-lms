@@ -15,6 +15,19 @@ connection.pathname = '/aspireedge_accounts_validation';
 process.env.DATABASE_URL = connection.toString();
 const mediaFolder = await mkdtemp(join(tmpdir(), 'aspireedge-media-test-'));
 process.env.LOCAL_STORAGE_PATH = mediaFolder;
+process.env.RESEND_API_KEY = 'test-key';
+process.env.EMAIL_OTP_SECRET = 'disposable-test-secret-at-least-32-bytes';
+const sentOtps = new Map<string, string>();
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  if (String(input) !== 'https://api.resend.com/emails') return originalFetch(input, init);
+  const message = JSON.parse(String(init?.body));
+  assert.equal(message.subject, 'Your Aspireedge Verification Code');
+  const otp = /Verification Code: ([0-9]{6})/.exec(message.text)?.[1];
+  assert.ok(otp);
+  sentOtps.set(message.to[0], otp);
+  return Response.json({ id: randomUUID() });
+};
 const { app } = await import('../src/app.js');
 const { prisma } = await import('../src/lib/prisma.js');
 const { resetAdminPassword } = await import('../src/lib/passwords.js');
@@ -31,20 +44,41 @@ async function linkToken(userEmail: string, subject: string) {
   return new URLSearchParams(new URL(link).hash.slice(1)).get('token')!;
 }
 try {
-  status(await request(app).post('/api/v1/auth/register').send({ name: 'Integration Student', email, password, confirmPassword: 'mismatch' }), 422);
-  status(await request(app).post('/api/v1/auth/register').send({ name: 'Integration Student', email, password, confirmPassword: password, platformRole: 'SUPER_ADMIN' }), 422);
-  const registration = await request(app).post('/api/v1/auth/register').send({ name: 'Integration Student', email, password, confirmPassword: password });
+  status(await request(app).post('/api/v1/auth/register').send({ name: 'Integration Student', email, phone: '9876543210', password, gender: 'FEMALE', confirmPassword: 'mismatch' }), 422);
+  status(await request(app).post('/api/v1/auth/register').send({ name: 'Integration Student', email, phone: '9876543210', password, gender: 'FEMALE', confirmPassword: password, platformRole: 'SUPER_ADMIN' }), 422);
+  const mobile = `9${String(stamp).replace(/[^0-9]/g, '').slice(-9).padStart(9, '0')}`;
+  const registration = await request(app).post('/api/v1/auth/register').send({ name: 'Integration Student', email, phone: mobile, password, gender: 'FEMALE', confirmPassword: password });
   status(registration, 201);
-  const session = cookie(registration), csrf = registration.body.data.csrfToken;
-  assert.match(registration.body.data.studentCode, /^STU[0-9A-F]{12}$/);
-  status(await request(app).post('/api/v1/auth/register').send({ name: 'Duplicate', email, password, confirmPassword: password }), 409);
+  const duplicatePhone = await request(app).post('/api/v1/auth/register').send({
+    name: 'Duplicate mobile', email: `duplicate-phone-${stamp}@example.invalid`, password,
+    confirmPassword: password, gender: 'MALE', phone: `+91 ${mobile.slice(0, 5)}-${mobile.slice(5)}`,
+  });
+  status(duplicatePhone, 409);
+  assert.equal(duplicatePhone.body.error.code, 'PHONE_TAKEN');
+  assert.equal(registration.headers['set-cookie'], undefined);
+  assert.equal(registration.body.data.delivered, true);
+  const originalOtp = sentOtps.get(email)!;
+  const verify = (otp: string) => request(app).post('/api/v1/auth/verify-email').send({ email, otp });
+  const resend = () => request(app).post('/api/v1/auth/resend-otp').send({ email });
+  status(await request(app).post('/api/v1/auth/login').send({ email, password }), 403);
+  status(await resend(), 429);
+  const wrongOtp = originalOtp === '000000' ? '000001' : '000000';
+  for (let attempt = 0; attempt < 5; attempt++) status(await verify(wrongOtp), 400);
+  status(await verify(originalOtp), 400);
+  await prisma.user.update({ where: { email }, data: { emailOtpAttempts: 0, emailOtpExpiresAt: new Date(0), emailOtpLastSentAt: new Date(0) } });
+  status(await verify(originalOtp), 400);
+  status(await resend(), 200);
+  status(await verify(originalOtp), 400);
+  status(await verify(sentOtps.get(email)!), 200);
+  const firstLogin = await request(app).post('/api/v1/auth/login').send({ email, password });
+  status(firstLogin, 200);
+  const session = cookie(firstLogin), csrf = firstLogin.body.data.csrfToken;
+  assert.match((await prisma.studentAccount.findUniqueOrThrow({ where: { userId: firstLogin.body.data.user.id } })).studentCode, /^STU[0-9A-F]{12}$/);
+  status(await request(app).post('/api/v1/auth/register').send({ name: 'Duplicate', email, phone: mobile, password, gender: 'FEMALE', confirmPassword: password }), 409);
   status(await request(app).patch('/api/v1/account/profile').set('Cookie', session).send({ name: 'Changed' }), 403);
   status(await request(app).patch('/api/v1/account/profile').set('Cookie', session).set('X-CSRF-Token', csrf).send({ name: 'Updated Student', phone: '12345' }), 200);
   const profile = await request(app).get('/api/v1/account/profile').set('Cookie', session);
   status(profile, 200); assert.equal(profile.body.data.name, 'Updated Student'); assert.equal(profile.body.data.directStudent.phone, '12345');
-  const verify = await linkToken(email, 'Verify your AspireEdge email');
-  status(await request(app).post('/api/v1/account/verify-email').send({ token: verify }), 200);
-  status(await request(app).post('/api/v1/account/verify-email').send({ token: verify }), 400);
   assert.ok((await prisma.user.findUniqueOrThrow({ where: { email } })).emailVerifiedAt);
   const known = await request(app).post('/api/v1/account/forgot-password').send({ email });
   const unknown = await request(app).post('/api/v1/account/forgot-password').send({ email: 'absent@example.invalid' });
@@ -70,7 +104,7 @@ try {
   assert.equal(await prisma.auditLog.count({ where: { actorId: admin.id, action: 'ADMIN_PASSWORD_RECOVERED' } }), 1);
   const recovered = await request(app).post('/api/v1/auth/login').send({ email: adminEmail, password: replacement }); status(recovered, 200);
   status(await request(app).get('/api/v1/academy/admin/dashboard').set('Cookie', cookie(recovered)), 200);
-  const student = await prisma.studentAccount.findUniqueOrThrow({ where: { userId: registration.body.data.user.id } });
+  const student = await prisma.studentAccount.findUniqueOrThrow({ where: { userId: firstLogin.body.data.user.id } });
   const studentLogin = await request(app).post('/api/v1/auth/login').send({ email, password }); status(studentLogin, 200);
   status(await request(app).patch(`/api/v1/academy/admin/students/${student.id}`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ status: 'DISABLED' }), 200);
   status(await request(app).get('/api/v1/account/profile').set('Cookie', cookie(studentLogin)), 401);
@@ -153,7 +187,10 @@ try {
   const verification=await request(app).get(`/api/v1/certificates/verify/${certificateId}`);status(verification,200);assert.equal(verification.body.data.status,'VALID');assert.equal(verification.body.data.email,undefined);assert.equal(verification.body.data.exceptionReason,undefined);
   const pdf=await request(app).get(`/api/v1/certificates/${certificateId}/pdf`).set('Cookie',cookie(mediaStudent));status(pdf,200);assert.match(pdf.headers['content-type'],/application\/pdf/);assert.equal(pdf.body.subarray(0,5).toString(),'%PDF-');
   status(await request(app).get(`/api/v1/certificates/${certificateId}/pdf`),401);
-  const outsider=await request(app).post('/api/v1/auth/register').send({name:'Other learner',email:`other-${stamp}@example.invalid`,password,confirmPassword:password});status(outsider,201);
+  const outsiderEmail = `other-${stamp}@example.invalid`;
+  status(await request(app).post('/api/v1/auth/register').send({name:'Other learner', email: outsiderEmail, phone: mobile, password, gender:'MALE', confirmPassword:password}), 201);
+  status(await request(app).post('/api/v1/auth/verify-email').send({email: outsiderEmail, otp: sentOtps.get(outsiderEmail)}), 200);
+  const outsider = await request(app).post('/api/v1/auth/login').send({email: outsiderEmail, password}); status(outsider, 200);
   status(await request(app).get(`/api/v1/certificates/${certificateId}/pdf`).set('Cookie',cookie(outsider)),403);
   status(await request(app).put(`/api/v1/assessments/student/attempts/${attemptResponse.body.data.id}/answers`).set('Cookie',cookie(outsider)).set('X-CSRF-Token',outsider.body.data.csrfToken).send({answers:[]}),404);
   status(await request(app).get(`/api/v1/assessments/submissions/${submitted.body.data.id}/file`).set('Cookie',cookie(outsider)),403);
@@ -206,4 +243,4 @@ try {
     assert.equal(await prisma.emailJob.count({ where: { deliveredAt: null } }), 0);
   } finally { await rm(mailbox, { recursive: true, force: true }); }
   console.log(`PASS: ${checks} HTTP assertions plus PostgreSQL persistence, email-token lifecycle, session revocation and admin audit checks.`);
-} finally { await prisma.$disconnect(); await rm(mediaFolder, { recursive: true, force: true }); }
+} finally { globalThis.fetch = originalFetch; await prisma.$disconnect(); await rm(mediaFolder, { recursive: true, force: true }); }

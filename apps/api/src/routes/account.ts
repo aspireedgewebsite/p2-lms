@@ -1,3 +1,5 @@
+import { StudentGender } from '@prisma/client';
+import { studentPhone, studentPhoneKey } from '../lib/student-phone.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
@@ -35,15 +37,24 @@ router.post('/verification-email', requireAuth, asyncRoute(async (req, res) => {
 }));
 router.get('/profile', requireAuth, asyncRoute(async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId },
-    select: { name: true, email: true, emailVerifiedAt: true, directStudent: { select: { phone: true, studentCode: true } } } });
+    select: { name: true, email: true, emailVerifiedAt: true, directStudent: { select: { phone: true, studentCode: true, gender: true } } } });
   res.json({ data: user });
 }));
 router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
-  const data = z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().max(25).optional() }).strict().parse(req.body);
+  const data = z.object({ name: z.string().trim().min(2).max(120), phone: studentPhone, gender: z.nativeEnum(StudentGender).optional() }).strict().parse(req.body);
   await prisma.$transaction(async tx => {
     await tx.user.update({ where: { id: req.auth!.userId }, data: { name: data.name } });
-    if (data.phone !== undefined) await tx.studentAccount.updateMany({ where: { userId: req.auth!.userId }, data: { phone: data.phone } });
-  });
+    if (data.phone === undefined && data.gender === undefined) return;
+    const userId = req.auth!.userId;
+    const phoneKey = data.phone === undefined ? undefined : studentPhoneKey(data.phone);
+    if (phoneKey) {
+      const student = await tx.studentAccount.findUnique({ where: { userId }, select: { phoneKey: true } });
+      if (student && student.phoneKey !== phoneKey && await tx.studentAccount.findFirst({ where: { phoneKey, userId: { not: userId } }, select: { id: true } })) {
+        fail(409, 'PHONE_TAKEN', 'This mobile number already belongs to another account.');
+      }
+    }
+    await tx.studentAccount.updateMany({ where: { userId }, data: { phone: data.phone, phoneKey, gender: data.gender } });
+  }, { isolationLevel: 'Serializable' });
   res.json({ data: { success: true } });
 }));
 router.post('/change-password', requireAuth, asyncRoute(async (req, res) => {

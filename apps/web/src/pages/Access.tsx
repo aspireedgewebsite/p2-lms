@@ -1,31 +1,157 @@
-import { FormEvent, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { ArrowRight, BookOpen, LockKeyhole, Mail, ShieldCheck, UserRoundPlus } from 'lucide-react';
-import { Brand, Alert } from '../components/UI';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, KeyRound, LoaderCircle } from 'lucide-react';
+import { StudentGenderField } from '../components/StudentGenderField';
+import { Brand } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
-import { api, messageFromError, type ApiOne } from '../lib/api';
+import { ApiError, messageFromError } from '../lib/api';
+import learningPhoto from '../assets/academy-learning.jpg';
+import './Access.css';
 
-export function Login() {
- const {me, login} = useAuth(); const navigate = useNavigate();
- const [email,setEmail] = useState(''); const [password,setPassword] = useState('');
- const [busy,setBusy] = useState(false); const [error,setError] = useState('');
- if(me) return <Navigate to={me.scope==='PLATFORM'?'/admin':'/student'} replace/>;
- async function submit(e:FormEvent) { e.preventDefault(); setBusy(true); setError('');
-   try {await login(email,password); const m=await api<ApiOne<{scope:string}>>('/auth/me');navigate(m.data.scope==='PLATFORM'?'/admin':'/student',{replace:true});}
-   catch(err){setError(messageFromError(err));} finally{setBusy(false);} }
- return <div className="auth-shell"><section className="auth-left"><div className="auth-identity"><Link to="/"><Brand/></Link></div><div className="auth-hero"><div className="mini-star">ASPIREEDGE ACADEMY</div><h1>Keep growing.<br/><em>Keep learning.</em></h1><p>Your courses, achievements and learning journey in one place.</p><div className="auth-feature"><span><BookOpen size={20}/></span><div><strong>Learn on your schedule</strong><small>Pick up from your last completed lesson.</small></div></div></div></section>
- <section className="auth-right"><div className="login-wrap"><div className="welcome-icon"><LockKeyhole size={25}/></div><h2>Welcome back</h2><p className="auth-subtitle">Sign in as a student or administrator</p>
- {error&&<Alert message={error} onClose={()=>setError('')}/>}
- <form className="auth-form" onSubmit={submit}><label>Email address<div className="input-icon"><Mail size={18}/><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" placeholder="you@example.com"/></div></label><label>Password<div className="input-icon"><LockKeyhole size={18}/><input required type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="Your password"/></div></label><button disabled={busy} className="primary-button auth-button">{busy?'Signing in…':'Sign in'}<ArrowRight size={18}/></button></form>
- <p className="login-hint"><Link to="/forgot-password">Forgot password?</Link></p><p className="login-hint">New student? <Link to="/register">Create a free account</Link></p><div className="auth-note"><ShieldCheck size={17}/>Secure sign-in</div></div></section></div>;
+function PasswordField({ confirm = false, signup = false }: { confirm?: boolean; signup?: boolean }) {
+  const [visible, setVisible] = useState(false);
+  const label = confirm ? 'Confirm password' : 'Password';
+  const id = confirm ? 'confirm-password' : 'password';
+
+  return <div className="access-field">
+    <label htmlFor={id}>{label}</label>
+    <div className="access-password">
+      <input id={id} name={id} type={visible ? 'text' : 'password'} required
+        autoComplete={signup ? 'new-password' : 'current-password'}
+        minLength={signup ? 12 : undefined} maxLength={signup ? 128 : undefined}
+        aria-describedby={signup && !confirm ? 'password-hint' : undefined}/>
+      <button type="button" aria-label={`${visible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+        onClick={() => setVisible(value => !value)}>
+        {visible ? <EyeOff size={19}/> : <Eye size={19}/>}
+      </button>
+    </div>
+    {signup && !confirm && <small id="password-hint">Use at least 12 characters.</small>}
+  </div>;
 }
-export function Register() {
- const {me, register} = useAuth(); const navigate=useNavigate();
- const [confirmPassword,setConfirmPassword]=useState('');
- const [name,setName]=useState('');const [email,setEmail]=useState('');const [phone,setPhone]=useState('');const [password,setPassword]=useState('');
- const [busy,setBusy]=useState(false);const [error,setError]=useState('');
- if(me) return <Navigate to={me.scope==='PLATFORM'?'/admin':'/student'} replace/>;
- async function submit(e:FormEvent){e.preventDefault();setBusy(true);setError('');try{if(password!==confirmPassword) throw new Error('Passwords must match.');await register(name,email,phone,password,confirmPassword);navigate('/student',{replace:true});}catch(err){setError(messageFromError(err));}finally{setBusy(false);}}
- return <div className="academy-auth-alone"><div className="academy-auth-card"><Link to="/"><Brand/></Link><div className="welcome-icon" style={{marginTop:25}}><UserRoundPlus size={25}/></div><h2>Create your student account</h2><p className="auth-subtitle">Browse courses for free. Purchase or request access when you're ready.</p>{error&&<Alert message={error} onClose={()=>setError('')}/>}
- <form className="auth-form" onSubmit={submit}><label>Full name<input required minLength={2} maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name"/></label><label>Email address<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" placeholder="you@example.com"/></label><label>Mobile number (optional)<input value={phone} onChange={e=>setPhone(e.target.value)} maxLength={25} placeholder="Your phone number"/></label><label>Password (at least 12 characters)<input required type="password" minLength={12} maxLength={128} value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password" placeholder="Create a strong password"/></label><label>Confirm password<input required type="password" minLength={12} maxLength={128} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} autoComplete="new-password"/></label><button className="primary-button auth-button" disabled={busy}>{busy?'Creating account…':'Create student account'}<ArrowRight size={18}/></button></form><p className="login-hint">Already have an account? <Link to="/login">Sign in</Link></p></div></div>;
+
+const successDuration = 1400;
+
+function SuccessReveal() {
+  return <main className="access-reveal">
+    <div className="access-reveal-orbit" aria-hidden="true"/>
+    <div className="access-reveal-content" role="status">
+      <div className="access-reveal-logo"><Brand/></div>
+      <p>Signed in successfully</p>
+      <span>Opening your dashboard</span>
+    </div>
+  </main>;
 }
+
+function AccessFrame({ children, signup }: { children: ReactNode; signup: boolean }) {
+  return <main className={signup ? 'access-page access-page-signup' : 'access-page access-page-login'}>
+    <aside className="access-visual">
+      <img src={learningPhoto} alt=""/>
+      <div className="access-visual-light" aria-hidden="true"/>
+      <div className="access-visual-copy">
+        <p>A unit of Aspireedge Pvt. Ltd.</p>
+        <strong>Make time to learn something new.</strong>
+      </div>
+    </aside>
+    <section className="access-content" aria-labelledby="access-title">
+      <div className="access-ambient" aria-hidden="true"><span className="access-ribbons"/><span className="access-sparks"/></div>
+      <div className="access-card">
+        <Link className="access-brand" to="/"><Brand/></Link>
+        {children}
+      </div>
+    </section>
+  </main>;
+}
+
+function AccessPage({ signup = false }: { signup?: boolean }) {
+  const { me, login, register } = useAuth();
+  const navigate = useNavigate();
+  const { state } = useLocation();
+  const [email, setEmail] = useState(() => typeof state?.email === 'string' ? state.email : '');
+  const [phase, setPhase] = useState<'idle' | 'pending' | 'complete'>('idle');
+  const [error, setError] = useState('');
+  const destination = me?.scope === 'PLATFORM' ? '/admin' : '/student';
+  const accepted = phase === 'complete' && Boolean(me);
+  const pending = phase === 'pending';
+  const sessionError = phase === 'complete' && !me ? 'Your session could not be started. Please sign in again.' : '';
+  const feedback = pending ? (signup ? 'Creating account…' : 'Signing in…') : '';
+
+  useEffect(() => {
+    if (!accepted) return;
+    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : successDuration;
+    const timeout = window.setTimeout(() => navigate(destination, { replace: true }), delay);
+    return () => window.clearTimeout(timeout);
+  }, [accepted, destination, navigate]);
+
+  if (me && phase === 'idle') return <Navigate to={destination} replace/>;
+  if (accepted) return <SuccessReveal/>;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending || accepted) return;
+    const data = new FormData(event.currentTarget);
+    const email = String(data.get('email') ?? '');
+    const password = String(data.get('password') ?? '');
+    const confirmation = String(data.get('confirm-password') ?? '');
+    setError('');
+    setPhase('pending');
+
+    try {
+      if (signup) {
+        if (password !== confirmation) throw new Error('Passwords must match.');
+        const result = await register(String(data.get('name') ?? ''), email, String(data.get('phone') ?? ''), password, confirmation, String(data.get('gender') ?? ''));
+        navigate('/verify-email', { replace: true, state: { email, ...result } });
+        return;
+      } else {
+        await login(email, password);
+      }
+      setPhase('complete');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'EMAIL_UNVERIFIED') {
+        setError('Your email is not verified yet. Choose Resend Verification OTP below to verify this account.');
+        setPhase('idle');
+        return;
+      }
+      setError(messageFromError(err));
+      setPhase('idle');
+    }
+  }
+
+  return <AccessFrame signup={signup}>
+    <header className="access-heading">
+      <h1 id="access-title">{signup ? 'Create your account' : 'Welcome back'}</h1>
+      <p>{signup ? 'Create a student account to enroll in courses and track your progress.' : 'Sign in to your student or administrator account.'}</p>
+    </header>
+    {(error || sessionError) && <p className="access-error" role="alert">
+      {error || sessionError} {sessionError && signup && <Link to="/login">Go to sign in</Link>}
+    </p>}
+    <form className="access-form" onSubmit={submit}>
+      {signup && <div className="access-field"><label htmlFor="name">Full name</label>
+        <input id="name" name="name" autoComplete="name" required minLength={2} maxLength={120}/>
+      </div>}
+      <div className="access-field"><label htmlFor="email">Email address</label>
+        <input id="email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" value={email} onChange={event => setEmail(event.target.value)}/>
+      </div>
+      {signup && <div className="access-field"><label htmlFor="phone">Mobile number</label>
+        <input id="phone" name="phone" type="tel" autoComplete="tel" maxLength={25} required/>
+      </div>}
+      {signup && <div className="access-field"><StudentGenderField required/></div>}
+      <PasswordField signup={signup}/>
+      {signup ? <PasswordField signup confirm/> : <div className="access-recovery-links">
+        <Link to="/forgot-password">Forgot password?</Link>
+        <Link to="/verify-email" state={{ email: email.trim() }}>Resend Verification OTP</Link>
+      </div>}
+      <button className="primary-button access-submit" disabled={pending}>
+        {pending ? <LoaderCircle className="access-spinner" size={19}/> : <KeyRound size={19}/>}
+        {feedback || (signup ? 'Create student account' : 'Sign in')}
+      </button>
+      <span className="access-status" role="status">{feedback}</span>
+    </form>
+    <p className="access-switch">
+      {signup ? 'Already have an account?' : 'New to Aspireedge?'}{' '}
+      <Link to={signup ? '/login' : '/register'}>{signup ? 'Sign in' : 'Create a free account'}</Link>
+    </p>
+  </AccessFrame>;
+}
+
+export function Login() { return <AccessPage/>; }
+export function Register() { return <AccessPage signup/>; }

@@ -30,6 +30,9 @@ export async function consumeAccountToken(raw: string, purpose: 'RESET_PASSWORD'
     if (!token || token.purpose !== purpose || token.usedAt || token.expiresAt <= new Date()) {
       fail(400, 'INVALID_TOKEN', 'This link is invalid or expired. Request a new link.');
     }
+    if (purpose === 'VERIFY_EMAIL' && await tx.studentAccount.findUnique({ where: { userId: token.userId }, select: { id: true } })) {
+      fail(400, 'OTP_REQUIRED', 'Student accounts must verify email with a six-digit code.');
+    }
     // Atomic claim prevents two concurrent requests from using the same link.
     const claimed = await tx.accountToken.updateMany({
       where: { id: token.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() },

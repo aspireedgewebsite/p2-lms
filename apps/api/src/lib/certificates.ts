@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { CertificateTemplate, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
@@ -12,6 +12,18 @@ export const templateInput = z.object({
   assignmentPassPercent: z.number().int().min(1).max(100),
 }).strict();
 export const certificateSnapshot = z.object({ studentName: z.string(), courseTitle: z.string(), brandName: z.string(), signatory: z.string(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), templateId: z.string().uuid(), verificationOrigin: z.string().url(), requirements: z.object({ requireAllLessons: z.boolean(), requireQuizzes: z.boolean(), requireAssignments: z.boolean(), assignmentPassPercent: z.number() }) });
+
+export function buildCertificateSnapshot(studentName: string, courseTitle: string, template: CertificateTemplate) {
+  return {
+    studentName, courseTitle, templateId: template.id, brandName: template.brandName,
+    signatory: template.signatory, accentColor: template.accentColor,
+    verificationOrigin: new URL(process.env.WEB_ORIGIN || 'http://localhost:5173').origin,
+    requirements: {
+      requireAllLessons: template.requireAllLessons, requireQuizzes: template.requireQuizzes,
+      requireAssignments: template.requireAssignments, assignmentPassPercent: template.assignmentPassPercent,
+    },
+  };
+}
 
 export async function certificateEligibility(tx: Prisma.TransactionClient, userId: string, courseId: string) {
   const enrollment = await tx.directEnrollment.findUnique({ where: { userId_courseId: { userId, courseId } }, include: {
