@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'node:path';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -15,6 +16,9 @@ import { loadSession, requireCsrf } from './middleware/auth.js';
 import { errorHandler, HttpError } from './lib/http.js';
 
 export const app = express();
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 app.disable('x-powered-by');
 app.use(helmet());
 const webOrigin = process.env.WEB_ORIGIN || 'http://localhost:5173';
@@ -53,6 +57,26 @@ app.use('/api/v1/media', mediaRoutes);
 app.use('/api/v1/certificates', certificateRoutes);
 app.use('/api/v1/assessments', assessmentRoutes);
 app.use('/api/v1/payments/razorpay', otpLimit(30), paymentRoutes);
+
 app.use('/api/v1/academy', academyRoutes);
+
+if (process.env.NODE_ENV === 'production') {
+  const webPath = path.resolve(
+    process.cwd(),
+    '../../apps/web/dist'
+  );
+
+  app.use(express.static(webPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+
+    res.sendFile(path.join(webPath, 'index.html'));
+  });
+}
+
 app.use((_req, _res, next) => next(new HttpError(404, 'NOT_FOUND', 'Route not found.')));
 app.use(errorHandler);
+
