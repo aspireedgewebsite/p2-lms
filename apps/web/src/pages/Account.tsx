@@ -28,7 +28,7 @@ export function AccountLink({ mode }: { mode: 'forgot' | 'reset' | 'verify' }) {
       if (mode !== 'forgot') await refresh();
     } catch (err) { setError(messageFromError(err)); } finally { setBusy(false); }
   }
-  return <div className="academy-auth-alone"><section className="academy-auth-card">
+  return <main className="academy-auth-alone"><section className="academy-auth-card">
     <Link to="/"><Brand/></Link>
     <h1>{mode === 'forgot' ? 'Forgot password' : mode === 'reset' ? 'Set a new password' : 'Verify your email'}</h1>
     {error && <Alert message={error}/>}{message && <Alert success message={message}/>}
@@ -39,7 +39,7 @@ export function AccountLink({ mode }: { mode: 'forgot' | 'reset' | 'verify' }) {
       <button className="primary-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'forgot' ? 'Send reset link' : mode === 'reset' ? 'Reset password' : 'Verify email'}</button>
     </form>}
     <p><Link to="/login">Back to sign in</Link></p>
-  </section></div>;
+  </section></main>;
 }
 
 type ProfileData = { name: string; email: string; emailVerifiedAt: string | null; directStudent: { phone: string | null; studentCode: string; gender: StudentGender | null } | null };

@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, GraduationCap, BookOpen, LogOut, Menu, X, Wallet, UserRoundCheck, ShoppingBag, Globe, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { Brand, initials } from './UI';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { LayoutDashboard, GraduationCap, BookOpen, LogOut, Menu, X, Wallet, UserRoundCheck, ShoppingBag, Globe, PanelLeftClose, PanelLeftOpen, ChevronDown } from 'lucide-react';
+import { Brand, initials, Skeleton } from './UI';
 import { useAuth } from '../context/AuthContext';
 const adminNav = [
  {label:'Overview', to:'/admin', Icon:LayoutDashboard},
@@ -25,9 +25,13 @@ const studentNav = [
 export function AppLayout() {
  const {me, logout} = useAuth(); const navigate = useNavigate(); const [opened, setOpened] = useState(false);
  const [collapsed, setCollapsed] = useState(false);
+ const profileMenu = useRef<HTMLDetailsElement>(null);
  const menuButton = useRef<HTMLButtonElement>(null);
  const { pathname } = useLocation();
- useEffect(() => setOpened(false), [pathname]);
+ useEffect(() => {
+  setOpened(false);
+  if (profileMenu.current) profileMenu.current.open = false;
+ }, [pathname]);
  function closeMenu() { setOpened(false); menuButton.current?.focus(); }
  if (!me) return null;
  const isAdmin = me.scope === 'PLATFORM'; const nav = isAdmin ? adminNav : studentNav;
@@ -48,6 +52,20 @@ export function AppLayout() {
   <div className="main-area"><header className="topbar"><div className="topbar-left"><button ref={menuButton} className="mobile-menu" onClick={()=>setOpened(true)} aria-label="Open menu" aria-expanded={opened} aria-controls="workspace-navigation"><Menu size={22}/></button>{!isAdmin && <button type="button" className="student-sidebar-toggle" aria-label={collapsed ? 'Show sidebar' : 'Hide sidebar'}
     aria-expanded={!collapsed} aria-controls="workspace-navigation" onClick={() => setCollapsed(value => !value)}>
     {collapsed ? <PanelLeftOpen size={21}/> : <PanelLeftClose size={21}/>}
-   </button>}<span className="topbar-path">Aspireedge <span>/</span> {isAdmin ? 'Admin' : 'Student'}</span></div><div className="topbar-right"><div className="profile-avatar">{initials(me.user.name)}</div><div className="profile-info"><strong>{me.user.name}</strong><span>{isAdmin?'Administrator':'Student'}</span></div></div></header><main className="page-content"><Outlet/></main></div>
+   </button>}<span className="topbar-path">Aspireedge <span>/</span> {isAdmin ? 'Admin' : 'Student'}</span></div><details className="workspace-account" ref={profileMenu} onKeyDown={event => {
+    if (event.key !== 'Escape' || !event.currentTarget.open) return;
+    event.currentTarget.open = false;
+    event.currentTarget.querySelector('summary')?.focus();
+   }}>
+    <summary aria-label={me.user.name + " account options"}>
+     <span className="profile-avatar" aria-hidden="true">{initials(me.user.name)}</span>
+     <span className="profile-info"><strong>{me.user.name}</strong><span>{isAdmin ? 'Administrator' : 'Student'}</span></span>
+     <ChevronDown size={16} aria-hidden="true"/>
+    </summary>
+    <div className="workspace-account-links">
+     <NavLink to={isAdmin ? '/admin/profile' : '/student/profile'} onClick={() => { if (profileMenu.current) profileMenu.current.open = false; }}>Profile &amp; security</NavLink>
+     <button type="button" onClick={signOut}>Sign out</button>
+    </div>
+   </details></header><main className="page-content"><Suspense fallback={<Skeleton/>}><Outlet/></Suspense></main></div>
  </div>;
 }

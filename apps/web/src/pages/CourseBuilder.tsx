@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Alert, PageTitle, Skeleton } from '../components/UI';
+import { Alert, PageTitle, Skeleton, UploadProgress } from '../components/UI';
 import { api, messageFromError, type ApiOne } from '../lib/api';
 import { uploadCourseMedia } from '../lib/courseMedia';
 import type { LessonResource } from '../lib/lessonResources';
@@ -23,6 +23,7 @@ export function AdminCourseBuilder() {
   const [course, setCourse] = useState<FullCourse | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [resource, setResource] = useState<ResourceDraft | null>(null);
   const lessonDialog = useRef<HTMLDialogElement>(null);
@@ -42,7 +43,7 @@ export function AdminCourseBuilder() {
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError('');
-    try { await action(); await load(); } catch (error) { setError(messageFromError(error)); } finally { setBusy(false); }
+    try { await action(); await load(); } catch (error) { setError(messageFromError(error)); } finally { setUploadPercent(undefined); setBusy(false); }
   }
   async function mutate(path: string, method: string, body?: object) {
     await api(`/academy/admin${path}`, { method, body: body && JSON.stringify(body) });
@@ -68,7 +69,8 @@ export function AdminCourseBuilder() {
   function uploadVideo(file?: File) {
     if (!file || !id) return;
     void run(async () => {
-      const asset = await uploadCourseMedia(id, file);
+      setUploadPercent(null);
+      const asset = await uploadCourseMedia(id, file, setUploadPercent);
       setDraft(current => current && { ...current, contentUrl: asset.url });
     });
   }
@@ -89,7 +91,8 @@ export function AdminCourseBuilder() {
       const { id: resourceId, lessonId, title, kind } = resource;
       let url = resource.url;
       if (file instanceof File && file.size) {
-        url = (await uploadCourseMedia(id, file)).url;
+        setUploadPercent(null);
+        url = (await uploadCourseMedia(id, file, setUploadPercent)).url;
         const uploadedUrl = url;
         setResource(current => current && { ...current, url: uploadedUrl });
         const input = form.elements.namedItem('file');
@@ -165,6 +168,7 @@ export function AdminCourseBuilder() {
               <label>{resource.url ? 'Replace file (optional)' : 'Upload file (up to 50 MB)'}<input name="file" type="file"
                 accept={resource.kind === 'PDF' ? '.pdf' : '.ppt,.pptx'} required={!resource.url} disabled={busy}/></label>
               <div className="academy-actions">
+                <UploadProgress value={uploadPercent}/>
                 <button className="primary-button" disabled={busy}>{busy ? 'Saving…' : 'Save resource'}</button>
                 <button className="academy-small-button" type="button" disabled={busy} onClick={() => setResource(null)}>Cancel</button>
               </div>
@@ -184,6 +188,7 @@ export function AdminCourseBuilder() {
           {error && <Alert message={error}/>}
           <label>{draft.kind === 'VIDEO' ? 'Video topic' : 'Lesson title'}<input required minLength={2} maxLength={180} value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })}/></label>
           {draft.kind === 'VIDEO' && <label>Upload video (MP4 or WebM, up to 500 MB)<input type="file" accept=".mp4,.webm" disabled={busy} onChange={event => uploadVideo(event.target.files?.[0])}/></label>}
+          <UploadProgress value={uploadPercent}/>
           <label>{draft.kind === 'VIDEO' ? 'Video URL' : 'Resource URL'}<input type="url" required={draft.kind === 'VIDEO'} value={draft.contentUrl} onChange={event => setDraft({ ...draft, contentUrl: event.target.value })}/></label>
           <label>Who can watch?<select value={draft.isPreview ? 'free' : 'enrolled'} onChange={event => setDraft({ ...draft, isPreview: event.target.value === 'free' })}>
             <option value="enrolled">After enrollment</option>

@@ -1,20 +1,30 @@
+import { lazy } from 'react';
+import { PageMotion } from './components/PageMotion';
 import { SiteFooter } from './components/SiteFooter';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { createBrowserRouter, createRoutesFromElements, Link, Navigate, Outlet, Route, RouterProvider, ScrollRestoration } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/Layout';
 import { Spinner } from './components/UI';
-import { AdminCourseBuilder } from './pages/CourseBuilder';
 import { Information } from './pages/Information';
-import { AdminAccess } from './pages/CourseAccess';
-import { StudentProfile, EnrollmentReport } from './pages/Analytics';
 import { AdminCertificates, StudentCertificates, VerifyCertificate } from './pages/Certificates';
-import { AdminAssessments, StudentAssessments } from './pages/Assessments';
 import { AccountLink, Profile } from './pages/Account';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { Login, Register } from './pages/Access';
 import { Landing, Catalog, CourseDetails, PublicHeader } from './pages/Public';
-import { AdminDashboard, AdminCourses, AdminStudents, AdminOrders } from './pages/AcademyAdmin';
-import { StudentDashboard, StudentLearn, StudentOrders } from './pages/AcademyStudent';
+const AdminCourseBuilder = lazy(() => import('./pages/CourseBuilder').then(module => ({ default: module.AdminCourseBuilder })));
+const AdminAccess = lazy(() => import('./pages/CourseAccess').then(module => ({ default: module.AdminAccess })));
+const StudentProfile = lazy(() => import('./pages/Analytics').then(module => ({ default: module.StudentProfile })));
+const EnrollmentReport = lazy(() => import('./pages/Analytics').then(module => ({ default: module.EnrollmentReport })));
+const AdminAssessments = lazy(() => import('./pages/Assessments').then(module => ({ default: module.AdminAssessments })));
+const StudentAssessments = lazy(() => import('./pages/Assessments').then(module => ({ default: module.StudentAssessments })));
+const AdminDashboard = lazy(() => import('./pages/AcademyAdmin').then(module => ({ default: module.AdminDashboard })));
+const AdminCourses = lazy(() => import('./pages/AcademyAdmin').then(module => ({ default: module.AdminCourses })));
+const AdminStudents = lazy(() => import('./pages/AcademyAdmin').then(module => ({ default: module.AdminStudents })));
+const AdminOrders = lazy(() => import('./pages/AcademyAdmin').then(module => ({ default: module.AdminOrders })));
+const StudentDashboard = lazy(() => import('./pages/AcademyStudent').then(module => ({ default: module.StudentDashboard })));
+const StudentLearn = lazy(() => import('./pages/AcademyStudent').then(module => ({ default: module.StudentLearn })));
+const StudentOrders = lazy(() => import('./pages/AcademyStudent').then(module => ({ default: module.StudentOrders })));
+
 function Guard({ role }: { role: 'PLATFORM' | 'STUDENT' }) {
   const { me, loading } = useAuth();
   if (loading) return <div className="app-loader"><Spinner/></div>;
@@ -22,8 +32,10 @@ function Guard({ role }: { role: 'PLATFORM' | 'STUDENT' }) {
   if (me.scope !== role) return <Navigate to={me.scope === 'PLATFORM' ? '/admin' : '/student'} replace/>;
   return <AppLayout/>;
 }
-export default function App() {
- return <BrowserRouter><AuthProvider><Routes>
+function RootLayout() {
+ return <AuthProvider><PageMotion/><Outlet/><SiteFooter/><ScrollRestoration/></AuthProvider>;
+}
+const router = createBrowserRouter(createRoutesFromElements(<Route element={<RootLayout/>}>
    <Route path="/" element={<Landing/>}/>
    <Route path="/verify-certificate" element={<VerifyCertificate/>}/>
    <Route path="/verify-certificate/:id" element={<VerifyCertificate/>}/>
@@ -60,6 +72,9 @@ export default function App() {
      <Route path="/student/learn/:id" element={<StudentLearn/>}/>
      <Route path="/student/orders" element={<StudentOrders/>}/>
    </Route>
-   <Route path="*" element={<><PublicHeader/><main className="academy-container academy-section public-content"><h1>Page not found</h1><a className="primary-button inline-button" href="/">Return home</a></main></>}/>
- </Routes><SiteFooter/></AuthProvider></BrowserRouter>;
+   <Route path="*" element={<><PublicHeader/><main className="academy-container academy-section public-content"><h1>Page not found</h1><Link className="primary-button inline-button" to="/">Return home</Link></main></>}/>
+</Route>));
+
+export default function App() {
+ return <RouterProvider router={router}/>;
 }

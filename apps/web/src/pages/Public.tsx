@@ -1,10 +1,11 @@
+import { courseMediaCredentials } from '../lib/courseMedia';
 import type { LessonResource } from '../lib/lessonResources';
 import { courseTrackInfo, courseTracks, type CourseTrack } from '../lib/courseTracks';
 import { payForCourse } from '../lib/razorpay';
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, BookOpen, CheckCircle2, Clock, GraduationCap, Menu, PlayCircle, Search, ShoppingBag, X } from 'lucide-react';
-import { Brand, EmptyState, Skeleton, Alert } from '../components/UI';
+import { Link, NavLink, useLocation, useNavigate, useParams, useSearchParams, useViewTransitionState } from 'react-router-dom';
+import { ArrowRight, BookOpen, CheckCircle2, Clock, GraduationCap, PlayCircle, Search, ShoppingBag } from 'lucide-react';
+import { Brand, EmptyState, Skeleton, Alert, CourseSkeleton } from '../components/UI';
 import { ApiError, api, messageFromError, type ApiList, type ApiOne } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import learningPhoto from '../assets/academy-learning.jpg';
@@ -25,34 +26,37 @@ export function PublicHeader() {
     }
   }}>
     <div className="academy-container academy-header-inner">
-      <Link to="/"><Brand/></Link>
+      <Link id="site-home-link" to="/" aria-label="Aspireedge home" viewTransition><Brand/></Link>
       <div className="academy-mobile-tools">
       <Link className="academy-mobile-account" to={me ? dashboard : '/login'}>{me ? 'Dashboard' : 'Sign in'}</Link>
       <button type="button" className="academy-menu-toggle" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
         aria-expanded={menuOpen} aria-controls="public-navigation" onClick={() => setMenuOpen(open => !open)}>
-        {menuOpen ? <X size={22}/> : <Menu size={22}/>}
+        <span className="menu-bars" aria-hidden="true"><i/><i/><i/></span>
       </button>
       </div>
       <nav id="public-navigation" aria-label="Main navigation" className={menuOpen ? 'public-nav-open' : ''}>
-        <NavLink to="/courses">All courses</NavLink>
-        <NavLink to="/about">About</NavLink>
-        <NavLink to="/faq">FAQ</NavLink>
-        <NavLink to="/contact">Contact</NavLink>
-        <NavLink to="/verify-certificate">Verify certificate</NavLink>
+        <NavLink viewTransition to="/courses">All courses</NavLink>
+        <NavLink viewTransition to="/about">About</NavLink>
+        <NavLink viewTransition to="/faq">FAQ</NavLink>
+        <NavLink viewTransition to="/contact">Contact</NavLink>
+        <NavLink viewTransition to="/verify-certificate">Verify certificate</NavLink>
         <Link className="academy-desktop-account" to={me ? dashboard : '/login'}>{me ? 'My dashboard' : 'Sign in'}</Link>
         {!me && <Link className="primary-button inline-button" to="/register">Get started</Link>}
       </nav>
     </div>
   </header>;
 }
-export function CourseCard({course, base = '/courses'}:{course:Course; base?: string}){return <Link className="academy-course-card" to={`${base}/${course.id}`}><div className="academy-cover">{course.thumbnailUrl?<img alt="" src={course.thumbnailUrl} loading="lazy"/>:<BookOpen size={42}/>}</div><div className="academy-card-inner"><span className="academy-chip">{course.category || courseTrackInfo(course.track)?.title || 'Online course'} · {course.level.toLowerCase()}</span><h3>{course.title}</h3><p>{course.previewText||course.description||'Learn practical skills with Aspireedge.'}</p><div className="academy-course-bottom"><strong>{course.pricePaise===0?'Free':inr(course.pricePaise)}</strong><span>Explore <ArrowRight size={15}/></span></div></div></Link>}
+export function CourseCard({course, base = '/courses'}:{course:Course; base?: string}){
+ const to = base + '/' + course.id;
+ const transitioning = useViewTransitionState(to);
+ return <Link className="academy-course-card" viewTransition to={to} state={{ courseId: course.id, thumbnailUrl: course.thumbnailUrl }}><div className="academy-cover" style={{ viewTransitionName: course.thumbnailUrl && transitioning ? "course-cover-" + course.id : undefined }}>{course.thumbnailUrl?<img alt="" src={course.thumbnailUrl} loading="lazy"/>:<BookOpen size={42}/>}</div><div className="academy-card-inner"><span className="academy-chip">{course.category || courseTrackInfo(course.track)?.title || 'Online course'} · {course.level.toLowerCase()}</span><h3>{course.title}</h3><p>{course.previewText||course.description||'Learn practical skills with Aspireedge.'}</p><div className="academy-course-bottom"><strong>{course.pricePaise===0?'Free':inr(course.pricePaise)}</strong><span>Explore <ArrowRight size={15}/></span></div></div></Link>}
 function TrackLinks({ base, selected }: { base: string; selected?: CourseTrack }) {
   return <nav className="course-track-grid" aria-label="Course types">
-    {courseTracks.map(track => <Link key={track.id} className="course-track-link"
+    {courseTracks.map(track => <Link key={track.id} className="course-track-link" viewTransition
       aria-current={selected === track.id ? 'page' : undefined} to={`${base}?track=${track.id}`}>
       <BookOpen size={21} aria-hidden="true"/>
       <strong>{track.title}</strong>
-      <span>{track.description}</span>
+      <span>{track.description}</span><ArrowRight className="track-arrow" size={17} aria-hidden="true"/>
     </Link>)}
   </nav>;
 }
@@ -81,7 +85,7 @@ export function Landing() {
             <h1>Skills that open <em>new doors.</em></h1>
             <p>Build practical, career-focused skills at your own pace and track your progress as you learn.</p>
             <div className="academy-hero-actions">
-              <Link to="/courses" className="primary-button inline-button">Explore courses</Link>
+              <Link to="/courses" className="primary-button inline-button" viewTransition>Explore courses <ArrowRight size={18} aria-hidden="true"/></Link>
               <Link to={me ? (me.scope === 'PLATFORM' ? '/admin' : '/student') : '/register'} className="academy-outline-button">
                 {me ? 'Go to dashboard' : 'Create free account'}
               </Link>
@@ -96,13 +100,13 @@ export function Landing() {
           </div>
         </div>
       </section>
-      <section className="academy-container academy-section" aria-labelledby="featured-courses">
+      <section className="academy-container academy-section landing-courses" aria-labelledby="featured-courses" data-reveal>
         <div className="academy-section-heading">
           <h2 id="featured-courses">Explore courses by type</h2>
           <Link to="/courses">View all courses</Link>
         </div>
         <TrackLinks base="/courses"/>
-        {loading ? <Skeleton/> : error ? <Alert message={error}/> : courses.length ? (
+        {loading ? <CourseSkeleton/> : error ? <Alert message={error}/> : courses.length ? (
           <div className="academy-course-grid">{courses.map(course => <CourseCard key={course.id} course={course}/>)}</div>
         ) : <EmptyState title="Courses coming soon" subtitle="Check back for published courses."/>}
       </section>
@@ -149,7 +153,7 @@ export function Catalog({ student = false }: { student?: boolean }) {
 
   return <>{!student && <PublicHeader/>}
     <Container className={student ? 'student-catalog' : 'academy-container academy-section public-content'}>
-      <h1>{selected?.title ?? 'Explore courses'}</h1>
+      <h1 className="catalog-title">{selected?.title ?? 'Explore courses'}</h1>
       <p className="academy-muted">{selected?.description ?? 'Browse all courses or choose a course type.'}</p>
       <TrackLinks base={base} selected={selected?.id}/>
       {selected && <Link className="academy-back" to={base}>View all course types</Link>}
@@ -163,7 +167,7 @@ export function Catalog({ student = false }: { student?: boolean }) {
       <label className="catalog-topic">Topic <select value={category} onChange={event => updateQuery('category', event.target.value)}>
         <option value="">All topics</option>{categories.map(item => <option key={item}>{item}</option>)}
       </select></label>
-      {error ? <Alert message={error}/> : !result ? <Skeleton/> : result.data.length ? (
+      {error ? <Alert message={error}/> : !result ? <CourseSkeleton/> : result.data.length ? (
         (selected ? [selected] : courseTracks).map(group => {
           const courses = result.data.filter(course => course.track === group.id);
           return courses.length > 0 && <section key={group.id} className="course-track-results" aria-label={group.title}>
@@ -181,7 +185,11 @@ export function Catalog({ student = false }: { student?: boolean }) {
   </>;
 }
 export function CourseDetails({ student = false }: { student?: boolean }) {
- const Container = student ? 'section' : 'main';const {id}=useParams();const {me, loading: authLoading}=useAuth();const navigate=useNavigate();const [course,setCourse]=useState<Course|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [method,setMethod]=useState<'CASH' | 'UPI' | 'RAZORPAY'>('CASH');const companyQr = import.meta.env.VITE_COMPANY_PAYMENT_QR_URL?.trim();const [reference,setReference]=useState('');const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const [preview,setPreview]=useState<{title:string;content:string|null;contentUrl:string|null;resources:LessonResource[];kind:string}|null>(null);
+ const Container = student ? 'section' : 'main';const {id}=useParams();
+ const transitioning = useViewTransitionState((student ? "/student/courses/" : "/courses/") + id);
+ const { state } = useLocation();
+ const transitionThumbnail = state?.courseId === id && typeof state?.thumbnailUrl === "string" ? state.thumbnailUrl : null;
+ const {me, loading: authLoading}=useAuth();const navigate=useNavigate();const [course,setCourse]=useState<Course|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [method,setMethod]=useState<'CASH' | 'UPI' | 'RAZORPAY'>('CASH');const companyQr = import.meta.env.VITE_COMPANY_PAYMENT_QR_URL?.trim();const [reference,setReference]=useState('');const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const [preview,setPreview]=useState<{title:string;content:string|null;contentUrl:string|null;resources:LessonResource[];kind:string}|null>(null);
  const hasAccess = course?.hasAccess === true;
  useEffect(() => {
   if (authLoading) return;
@@ -214,10 +222,10 @@ export function CourseDetails({ student = false }: { student?: boolean }) {
   }
  }
  async function viewPreview(lessonId:string){try{const r=await api<ApiOne<{title:string;content:string|null;contentUrl:string|null;resources:LessonResource[];kind:string}>>(`/academy/courses/${id}/preview/${lessonId}`);setPreview(r.data);}catch(e){setError(messageFromError(e));}}
- return <>{!student && <PublicHeader/>}<Container className={student ? "student-catalog" : "academy-container academy-section public-content"}>{(loading || authLoading || !!course && course.id !== id)?<Skeleton/>:error&&!course?<Alert message={error}/>:course&&<><Link to={`${student ? "/student/courses" : "/courses"}?track=${course.track}`} className="academy-back">Back to {courseTrackInfo(course.track)?.title ?? "courses"}</Link><div className="academy-detail-grid"><div><span className="academy-chip">{courseTrackInfo(course.track)?.title ?? 'Online course'} · {course.level}</span>{course.category && <p className="academy-muted">Topic: {course.category}</p>}<h1>{course.title}</h1><p className="academy-lead">{course.description||course.previewText||'Learn at your own pace.'}</p><div className="academy-detail-meta"><span><Clock size={17}/>{course.durationHours||'Self-paced'} {course.durationHours?'hours':''}</span><span><BookOpen size={17}/>{course.lessons?.length||0} lessons</span></div>{course.instructor&&<p><strong>Instructor:</strong> {course.instructor}</p>}{course.learningObjectives?.length>0&&<><h2>What you will learn</h2><ul>{course.learningObjectives.map((objective,index)=><li key={index}>{objective}</li>)}</ul></>}<h2>Course syllabus</h2>{course.lessons?.length ? <div className="academy-module">{course.lessons.map((lesson, index, lessons) => <div key={lesson.id} className="academy-lesson-row">
+ return <>{!student && <PublicHeader/>}<Container className={student ? "student-catalog" : "academy-container academy-section public-content"}>{(loading || authLoading || !!course && course.id !== id) ? (transitionThumbnail ? <div className="academy-detail-grid"><Skeleton/><aside className="academy-panel academy-checkout"><img className="course-detail-image" src={transitionThumbnail} alt="" style={{ viewTransitionName: transitioning ? "course-cover-" + id : undefined }}/></aside></div> : <Skeleton/>) :error&&!course?<Alert message={error}/>:course&&<><Link to={`${student ? "/student/courses" : "/courses"}?track=${course.track}`} className="academy-back">Back to {courseTrackInfo(course.track)?.title ?? "courses"}</Link><div className="academy-detail-grid"><div><span className="academy-chip">{courseTrackInfo(course.track)?.title ?? 'Online course'} · {course.level}</span>{course.category && <p className="academy-muted">Topic: {course.category}</p>}<h1>{course.title}</h1><p className="academy-lead">{course.description||course.previewText||'Learn at your own pace.'}</p><div className="academy-detail-meta"><span><Clock size={17}/>{course.durationHours||'Self-paced'} {course.durationHours?'hours':''}</span><span><BookOpen size={17}/>{course.lessons?.length||0} lessons</span></div>{course.instructor&&<p><strong>Instructor:</strong> {course.instructor}</p>}{course.learningObjectives?.length>0&&<><h2>What you will learn</h2><ul>{course.learningObjectives.map((objective,index)=><li key={index}>{objective}</li>)}</ul></>}<h2>Course syllabus</h2>{course.lessons?.length ? <div className="academy-module">{course.lessons.map((lesson, index, lessons) => <div key={lesson.id} className="academy-lesson-row">
   <PlayCircle size={16}/>{lesson.kind === 'VIDEO' && `Video ${lessons.slice(0, index + 1).filter(item => item.kind === 'VIDEO').length} · `}{lesson.title}
   {lesson.isPreview && <button className="academy-text-button" onClick={() => viewPreview(lesson.id)}> {lesson.kind === 'VIDEO' ? 'Watch free preview' : 'Free preview'}</button>}
- </div>)}</div> : <p className="academy-muted">Syllabus will be available soon.</p>}{preview&&<div className="academy-panel"><h3>{preview.title}</h3><p style={{whiteSpace:'pre-wrap'}}>{preview.content}</p>{preview.kind === 'VIDEO' && preview.contentUrl && <video controls playsInline preload="metadata" src={preview.contentUrl} style={{ width: '100%', display: 'block' }}/>}{preview.contentUrl&&<a href={preview.contentUrl} target="_blank" rel="noreferrer">Open preview resource</a>}{preview.resources.map(resource => <p key={resource.id}><a href={resource.url} target="_blank" rel="noreferrer">{resource.title} ({resource.kind})</a></p>)}<button onClick={()=>setPreview(null)} className="academy-text-button">Close preview</button></div>}</div><aside className="academy-panel academy-checkout">{hasAccess ? <>
+ </div>)}</div> : <p className="academy-muted">Syllabus will be available soon.</p>}{preview&&<div className="academy-panel"><h3>{preview.title}</h3><p style={{whiteSpace:'pre-wrap'}}>{preview.content}</p>{preview.kind === 'VIDEO' && preview.contentUrl && <video controls playsInline preload="metadata" crossOrigin={courseMediaCredentials(preview.contentUrl)} src={preview.contentUrl} style={{ width: '100%', display: 'block' }}/>}{preview.contentUrl&&<a href={preview.contentUrl} target="_blank" rel="noreferrer">Open preview resource</a>}{preview.resources.map(resource => <p key={resource.id}><a href={resource.url} target="_blank" rel="noreferrer">{resource.title} ({resource.kind})</a></p>)}<button onClick={()=>setPreview(null)} className="academy-text-button">Close preview</button></div>}</div><aside className="academy-panel academy-checkout">{course.thumbnailUrl && <img className="course-detail-image" src={course.thumbnailUrl} alt="" style={{ viewTransitionName: transitioning ? "course-cover-" + course.id : undefined }}/>}{hasAccess ? <>
       <h2>You have course access</h2>
       <Link className="primary-button academy-full" to={`/student/learn/${id}`}>Go to course</Link>
     </> : <><h2>{course.pricePaise===0?'Free course':inr(course.pricePaise)}</h2><p>{course.pricePaise===0?'Start learning today, at no cost.':course.onlineCheckout ? 'Pay online for course access, or submit an offline payment request.' : 'Choose a payment method and submit a manual payment request.'}</p>{course.pricePaise!==0&&<><form id="course-access-request" onSubmit={event => {

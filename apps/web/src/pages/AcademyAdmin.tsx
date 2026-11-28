@@ -4,7 +4,7 @@ import { StudentGenderField, type StudentGender } from '../components/StudentGen
 import { FormEvent, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { BookOpen, GraduationCap, IndianRupee, Plus, ShoppingBag, X, UserRoundCheck, ArrowRight, LockKeyhole } from 'lucide-react';
-import { Alert, Badge, EmptyState, PageTitle, Skeleton, StatCard } from '../components/UI';
+import { Alert, Badge, EmptyState, PageTitle, Skeleton, StatCard, UploadProgress } from '../components/UI';
 import { api, messageFromError, type ApiList, type ApiOne } from '../lib/api';
 import { inr, type Course } from './Public';
 
@@ -65,6 +65,7 @@ export function AdminCourses(){
 const [courses,setCourses]=useState<AdminCourse[]>([]);const [q,setQ]=useState('');const [search,setSearch]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [form,setForm]=useState(emptyForm);const [editing,setEditing]=useState<string|null>(null);const [open,setOpen]=useState(false);const [busy,setBusy]=useState(false);
 const navigate = useNavigate();
 const createdCourse = useRef<string | null>(null);
+const [uploadPercent, setUploadPercent] = useState<number | null>();
 const [thumbnail, setThumbnail] = useState<File>();
 const load = useCallback(async () => {
  try {
@@ -97,7 +98,8 @@ async function save(event: FormEvent) {
   const savedId = result.data.id;
   if (!editing) createdCourse.current = savedId;
   if (thumbnail) {
-   const asset = await uploadCourseMedia(savedId, thumbnail);
+   setUploadPercent(null);
+   const asset = await uploadCourseMedia(savedId, thumbnail, setUploadPercent);
    setForm(current => ({ ...current, thumbnailUrl: asset.url }));
    setThumbnail(undefined);
    await api(`/academy/admin/courses/${savedId}`, { method: 'PATCH', body: JSON.stringify({ thumbnailUrl: asset.url }) });
@@ -108,7 +110,7 @@ async function save(event: FormEvent) {
  } catch (error) {
   setError(messageFromError(error));
   if (createdCourse.current) load();
- } finally { setBusy(false); }
+ } finally { setUploadPercent(undefined); setBusy(false); }
 }
 async function archive(c:AdminCourse){if(!window.confirm(`Archive ${c.title}? Existing enrollments remain recorded.`))return;try{await api(`/academy/admin/courses/${c.id}`,{method:'DELETE'});load();}catch(e){setError(messageFromError(e))}}
 async function setCourseStatus(course: AdminCourse, status: 'PUBLISHED' | 'DRAFT') {
@@ -156,7 +158,7 @@ return <><PageTitle kicker="COURSE MANAGEMENT" title={courseTrackInfo(track)?.ti
  </section>}
 {open && <CourseDialog title={editing ? 'Edit course' : 'Create a course'} busy={busy} close={() => { setOpen(false); setError(''); }} save={save}>
 {error && <div className="academy-wide"><Alert message={error}/></div>}
-<label>Course title<input required minLength={3} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Course type<select value={form.track} onChange={event=>setForm({...form,track:event.target.value as CourseTrack})}>{courseTracks.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label>Price (₹)<input type="number" min="0" step="0.01" value={form.priceRupees} onChange={e=>setForm({...form,priceRupees:e.target.value})}/></label><label>Duration (hours)<input type="number" min="1" value={form.durationHours} onChange={e=>setForm({...form,durationHours:e.target.value})}/></label><label>Level<select value={form.level} onChange={e=>setForm({...form,level:e.target.value})}><option value="BEGINNER">Beginner</option><option value="INTERMEDIATE">Intermediate</option><option value="ADVANCED">Advanced</option></select></label><label>Status<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="DRAFT">Draft</option><option value="PUBLISHED">Published</option><option value="ARCHIVED">Archived</option></select></label><label className="academy-wide">Short summary<textarea value={form.previewText} onChange={e=>setForm({...form,previewText:e.target.value})} rows={2}/></label><label className="academy-wide">Course description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={4}/></label><label className="academy-wide">Thumbnail image (PNG or JPEG)<input type="file" accept="image/png,image/jpeg" disabled={busy} onChange={event => setThumbnail(event.target.files?.[0])}/></label><label className="academy-wide">Thumbnail URL (optional)<input type="url" value={form.thumbnailUrl} onChange={e=>setForm({...form,thumbnailUrl:e.target.value})}/></label><label>Topic<input value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></label></CourseDialog>}</>}
+<label>Course title<input required minLength={3} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Course type<select value={form.track} onChange={event=>setForm({...form,track:event.target.value as CourseTrack})}>{courseTracks.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label>Price (₹)<input type="number" min="0" step="0.01" value={form.priceRupees} onChange={e=>setForm({...form,priceRupees:e.target.value})}/></label><label>Duration (hours)<input type="number" min="1" value={form.durationHours} onChange={e=>setForm({...form,durationHours:e.target.value})}/></label><label>Level<select value={form.level} onChange={e=>setForm({...form,level:e.target.value})}><option value="BEGINNER">Beginner</option><option value="INTERMEDIATE">Intermediate</option><option value="ADVANCED">Advanced</option></select></label><label>Status<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="DRAFT">Draft</option><option value="PUBLISHED">Published</option><option value="ARCHIVED">Archived</option></select></label><label className="academy-wide">Short summary<textarea value={form.previewText} onChange={e=>setForm({...form,previewText:e.target.value})} rows={2}/></label><label className="academy-wide">Course description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={4}/></label><label className="academy-wide">Thumbnail image (PNG or JPEG)<input type="file" accept="image/png,image/jpeg" disabled={busy} onChange={event => setThumbnail(event.target.files?.[0])}/></label><div className="academy-wide" hidden={uploadPercent === undefined}><UploadProgress value={uploadPercent}/></div><label className="academy-wide">Thumbnail URL (optional)<input type="url" value={form.thumbnailUrl} onChange={e=>setForm({...form,thumbnailUrl:e.target.value})}/></label><label>Topic<input value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></label></CourseDialog>}</>}
 
 export function AdminStudents() {
  const [history,setHistory]=useState<{id:string;action:string;actor:string;createdAt:string;metadata:{reason?:string;note?:string}|null}[]>([]);

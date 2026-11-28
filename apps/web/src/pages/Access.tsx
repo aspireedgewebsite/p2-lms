@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, LoaderCircle } from 'lucide-react';
 import { StudentGenderField } from '../components/StudentGenderField';
@@ -27,19 +27,6 @@ function PasswordField({ confirm = false, signup = false }: { confirm?: boolean;
     </div>
     {signup && !confirm && <small id="password-hint">Use at least 12 characters.</small>}
   </div>;
-}
-
-const successDuration = 1400;
-
-function SuccessReveal() {
-  return <main className="access-reveal">
-    <div className="access-reveal-orbit" aria-hidden="true"/>
-    <div className="access-reveal-content" role="status">
-      <div className="access-reveal-logo"><Brand/></div>
-      <p>Signed in successfully</p>
-      <span>Opening your dashboard</span>
-    </div>
-  </main>;
 }
 
 function AccessFrame({ children, signup }: { children: ReactNode; signup: boolean }) {
@@ -75,15 +62,7 @@ function AccessPage({ signup = false }: { signup?: boolean }) {
   const sessionError = phase === 'complete' && !me ? 'Your session could not be started. Please sign in again.' : '';
   const feedback = pending ? (signup ? 'Creating account…' : 'Signing in…') : '';
 
-  useEffect(() => {
-    if (!accepted) return;
-    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : successDuration;
-    const timeout = window.setTimeout(() => navigate(destination, { replace: true }), delay);
-    return () => window.clearTimeout(timeout);
-  }, [accepted, destination, navigate]);
-
-  if (me && phase === 'idle') return <Navigate to={destination} replace/>;
-  if (accepted) return <SuccessReveal/>;
+  if (me && (phase === 'idle' || accepted)) return <Navigate to={destination} replace/>;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
