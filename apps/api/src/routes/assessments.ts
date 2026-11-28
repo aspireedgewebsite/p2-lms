@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma.js';
 import { asyncRoute, fail } from '../lib/http.js';
 import { requireAuth, requirePlatform, requireStudent } from '../middleware/auth.js';
 import { enrollmentActive } from '../lib/enrollment.js';
-import { questionSchema, questionListSchema, answersSchema, gradeQuiz } from '../lib/assessment.js';
+import { questionSchema, questionListSchema, answersSchema, gradeQuiz, quizAudience } from '../lib/assessment.js';
 const router = Router();
 router.use(requireAuth);
 const id = z.string().uuid();
@@ -15,7 +15,7 @@ async function courseAccess(userId: string, courseId: string) {
   const enrollment = await prisma.directEnrollment.findUnique({ where: { userId_courseId: { userId, courseId } }, include: { course: { select: { tenantId: true } } } });
   if (!enrollmentActive(enrollment) || enrollment?.course.tenantId !== null) fail(403, 'ACCESS_REQUIRED', 'Active course access is required.');
 }
-const quizInput = z.object({ courseId: id, title: z.string().trim().min(3).max(180), durationMinutes: z.number().int().min(1).max(180), maxAttempts: z.number().int().min(1).max(20), passPercent: z.number().int().min(1).max(100), published: z.boolean(), questions: questionListSchema }).strict();
+const quizInput = z.object({ courseId: id, title: z.string().trim().min(3).max(180), durationMinutes: z.number().int().min(1).max(180), maxAttempts: z.number().int().min(1).max(20), passPercent: z.number().int().min(1).max(100), published: z.boolean(), assignmentOnly: z.boolean().optional(), questions: questionListSchema }).strict();
 const assignmentInput = z.object({ courseId: id, title: z.string().trim().min(3).max(180), instructions: z.string().trim().min(3).max(20000), dueAt: z.string().datetime().nullable(), published: z.boolean(), maxScore: z.number().int().min(1).max(1000) }).strict();
 router.get('/admin', requirePlatform, asyncRoute(async (_req, res) => {
   const [quizzes, assignments, bank] = await Promise.all([
@@ -23,6 +23,40 @@ router.get('/admin', requirePlatform, asyncRoute(async (_req, res) => {
     prisma.assignment.findMany({ where: { course: { tenantId: null } }, include: { course: { select: { title: true } } }, orderBy: { createdAt: 'desc' } }),
     prisma.questionBankItem.findMany({ orderBy: { createdAt: 'desc' }, take: 500 }),
   ]); res.json({ data: { quizzes, assignments, bank } });
+}));
+router.get('/admin/students/:id/quizzes', requirePlatform, asyncRoute(async (req, res) => {
+  const userId = id.parse(req.params.id);
+  const enrollments = await prisma.directEnrollment.findMany({
+    where: { userId, course: { tenantId: null }, user: { platformRole: 'USER', directStudent: { status: 'ACTIVE' } } },
+  });
+  const quizzes = await prisma.quiz.findMany({
+    where: { published: true, courseId: { in: enrollments.filter(enrollmentActive).map(e => e.courseId) } },
+    select: { id: true, title: true, course: { select: { title: true } },
+      studentAssignments: { where: { userId }, select: { userId: true } } },
+    orderBy: [{ course: { title: 'asc' } }, { title: 'asc' }],
+  });
+  res.json({ data: quizzes });
+}));
+router.post('/admin/students/:id/quizzes', requirePlatform, asyncRoute(async (req, res) => {
+  const userId = id.parse(req.params.id);
+  const { quizIds } = z.object({ quizIds: z.array(id).min(1).max(100) }).strict().parse(req.body);
+  const selected = [...new Set(quizIds)];
+  const count = await prisma.$transaction(async tx => {
+    const quizzes = await tx.quiz.findMany({
+      where: { id: { in: selected }, published: true, course: { tenantId: null, directEnrollments: {
+        some: { userId, status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          user: { platformRole: 'USER', directStudent: { status: 'ACTIVE' } } },
+      } } },
+      select: { id: true },
+    });
+    if (quizzes.length !== selected.length) fail(422, 'QUIZ_UNAVAILABLE', 'Select published quizzes from active courses for this student.');
+    const created = await tx.quizAssignment.createMany({ data: selected.map(quizId => ({ quizId, userId })), skipDuplicates: true });
+    if (created.count) await tx.auditLog.create({ data: {
+      actorId: req.auth!.userId, action: 'QUIZZES_ASSIGNED', entityType: 'User', entityId: userId, metadata: { quizIds: selected },
+    } });
+    return created.count;
+  });
+  res.json({ data: { count } });
 }));
 router.post('/admin/questions', requirePlatform, asyncRoute(async (req, res) => {
   const question = questionSchema.parse(req.body);
@@ -89,13 +123,13 @@ router.get('/student', requireStudent, asyncRoute(async (req, res) => {
   const enrollments = await prisma.directEnrollment.findMany({ where: { userId: req.auth!.userId, course: { tenantId: null } } });
   const courseIds = enrollments.filter(enrollmentActive).map(e => e.courseId);
   const [quizzes, assignments] = await Promise.all([
-    prisma.quiz.findMany({ where: { courseId: { in: courseIds }, published: true }, select: { id: true, title: true, durationMinutes: true, maxAttempts: true, passPercent: true, course: { select: { title: true } }, attempts: { where: { userId: req.auth!.userId }, select: { id: true, number: true, status: true, score: true, passed: true, expiresAt: true }, orderBy: { number: 'desc' } } } }),
+    prisma.quiz.findMany({ where: { courseId: { in: courseIds }, published: true, OR: quizAudience(req.auth!.userId) }, select: { id: true, title: true, studentAssignments: { where: { userId: req.auth!.userId }, select: { userId: true } }, durationMinutes: true, maxAttempts: true, passPercent: true, course: { select: { title: true } }, attempts: { where: { userId: req.auth!.userId }, select: { id: true, number: true, status: true, score: true, passed: true, expiresAt: true }, orderBy: { number: 'desc' } } } }),
     prisma.assignment.findMany({ where: { courseId: { in: courseIds }, published: true }, include: { course: { select: { title: true } }, submissions: { where: { userId: req.auth!.userId }, include: { reviews: { orderBy: { createdAt: 'desc' } } }, orderBy: { submittedAt: 'desc' } } } }),
   ]); res.json({ data: { quizzes, assignments } });
 }));
 router.post('/student/quizzes/:id/start', requireStudent, asyncRoute(async (req, res) => {
   const quizId = id.parse(req.params.id), userId = req.auth!.userId;
-  const quiz = await prisma.quiz.findFirst({ where: { id: quizId, published: true, course: { tenantId: null } } });
+  const quiz = await prisma.quiz.findFirst({ where: { id: quizId, published: true, OR: quizAudience(userId), course: { tenantId: null } } });
   if (!quiz) fail(404, 'QUIZ_NOT_FOUND', 'Quiz not found.');
   await courseAccess(userId, quiz.courseId);
   const attempt = await prisma.$transaction(async tx => {

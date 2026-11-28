@@ -86,6 +86,7 @@ model User {
   authTokens      AccountToken[]
   certificates    Certificate[]
   quizAttempts    QuizAttempt[]
+  quizAssignments QuizAssignment[]
   assignmentSubmissions AssignmentSubmission[]
   sessions       Session[]
   memberships    TenantMembership[]
@@ -262,6 +263,7 @@ model Course {
   certificateTemplateId String?
   certificateTemplate CertificateTemplate? @relation(fields: [certificateTemplateId], references: [id], onDelete: Restrict)
   certificates Certificate[]
+  lessons Lesson[]
   quizzes Quiz[]
   assignments Assignment[]
   @@index([tenantId, status])
@@ -389,24 +391,43 @@ model CourseModule {
   position  Int @default(0)
   createdAt DateTime @default(now())
   course    Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  lessons   Lesson[]
   @@index([courseId, position])
 }
 
 model Lesson {
   archivedAt DateTime?
   id          String @id @default(uuid())
-  moduleId    String
+  courseId    String
+  legacyModuleId String? @map("moduleId")
   title       String
   kind        LessonKind @default(TEXT)
   content     String?
   contentUrl  String?
+  published Boolean @default(false)
+  resources LessonResource[]
   isPreview   Boolean @default(false)
   position    Int @default(0)
   createdAt   DateTime @default(now())
-  module      CourseModule @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  course      Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
   progress    LessonProgress[]
-  @@index([moduleId, position])
+  @@index([courseId, position])
+}
+
+enum LessonResourceKind {
+  PDF
+  PPT
+}
+
+model LessonResource {
+  id String @id @default(uuid())
+  lessonId String
+  title String
+  kind LessonResourceKind
+  url String
+  createdAt DateTime @default(now())
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId, createdAt])
 }
 
 model DirectEnrollment {
@@ -471,9 +492,20 @@ model Quiz {
   passPercent Int @default(70)
   published Boolean @default(false)
   questions Json
+  assignmentOnly Boolean @default(false)
+  studentAssignments QuizAssignment[]
   createdAt DateTime @default(now())
   course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
   attempts QuizAttempt[]
+}
+model QuizAssignment {
+  quizId String
+  userId String
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([quizId, userId])
+  @@index([userId])
 }
 model QuizAttempt {
   id String @id @default(uuid())

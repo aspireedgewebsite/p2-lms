@@ -1,3 +1,5 @@
+import { visibleLesson } from './lessons.js';
+import { quizAudience } from './assessment.js';
 import type { CertificateTemplate, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import PDFDocument from 'pdfkit';
@@ -28,13 +30,13 @@ export function buildCertificateSnapshot(studentName: string, courseTitle: strin
 export async function certificateEligibility(tx: Prisma.TransactionClient, userId: string, courseId: string) {
   const enrollment = await tx.directEnrollment.findUnique({ where: { userId_courseId: { userId, courseId } }, include: {
     user: { select: { name: true, directStudent: { select: { status: true } } } }, progress: { select: { lessonId: true } },
-    course: { include: { certificateTemplate: true, modules: { where: { archivedAt: null }, select: { lessons: { where: { archivedAt: null }, select: { id: true } } } }, quizzes: { where: { published: true }, include: { attempts: { where: { userId, status: 'SUBMITTED', passed: true }, select: { id: true }, take: 1 } } }, assignments: { where: { published: true }, include: { submissions: { where: { userId }, orderBy: { submittedAt: 'desc' }, take: 1, include: { reviews: { orderBy: { createdAt: 'desc' }, take: 1 } } } } } } },
+    course: { include: { certificateTemplate: true, lessons: { where: visibleLesson, select: { id: true } }, quizzes: { where: { published: true, OR: quizAudience(userId) }, include: { attempts: { where: { userId, status: 'SUBMITTED', passed: true }, select: { id: true }, take: 1 } } }, assignments: { where: { published: true }, include: { submissions: { where: { userId }, orderBy: { submittedAt: 'desc' }, take: 1, include: { reviews: { orderBy: { createdAt: 'desc' }, take: 1 } } } } } } },
   } });
   if (!enrollment || enrollment.course.tenantId !== null) fail(404, 'ENROLLMENT_NOT_FOUND', 'Student course enrollment not found.');
   if (!enrollmentActive(enrollment) || enrollment.user.directStudent?.status !== 'ACTIVE') fail(403, 'ACCESS_REQUIRED', 'An active student and active course enrollment are required.');
   const template = enrollment.course.certificateTemplate;
   if (!template) fail(409, 'TEMPLATE_REQUIRED', 'Assign a certificate template to this course first.');
-  const lessons = enrollment.course.modules.flatMap(m => m.lessons);
+  const lessons = enrollment.course.lessons;
   const completedIds = new Set(enrollment.progress.map(p => p.lessonId));
   const completed = lessons.filter(l => completedIds.has(l.id)).length;
   const unpassedQuizzes = enrollment.course.quizzes.filter(q => !q.attempts.length).map(q => q.title);

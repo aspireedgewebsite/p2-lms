@@ -1,3 +1,4 @@
+import type { LessonResource } from '../lib/lessonResources';
 import { courseTrackInfo, courseTracks, type CourseTrack } from '../lib/courseTracks';
 import { payForCourse } from '../lib/razorpay';
 import { useEffect, useState } from 'react';
@@ -7,7 +8,7 @@ import { Brand, EmptyState, Skeleton, Alert } from '../components/UI';
 import { ApiError, api, messageFromError, type ApiList, type ApiOne } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import learningPhoto from '../assets/academy-learning.jpg';
-export type Course = {instructor:string|null;learningObjectives:string[];id:string;title:string;description:string|null;previewText:string|null;level:string;category:string|null;track:CourseTrack;thumbnailUrl:string|null;durationHours:number|null;onlineCheckout?:boolean;pricePaise:number;status:string;modules?:{id:string;title:string;position:number;lessons:{id:string;title:string;kind:string;position:number;isPreview:boolean}[]}[]};
+export type Course = {instructor:string|null;learningObjectives:string[];id:string;title:string;description:string|null;previewText:string|null;level:string;category:string|null;track:CourseTrack;thumbnailUrl:string|null;durationHours:number|null;onlineCheckout?:boolean;hasAccess?:boolean;razorpayQuote?:{totalPaise:number;surchargePaise:number|null};pricePaise:number;status:string;lessons?:{id:string;title:string;kind:string;position:number;isPreview:boolean}[]};
 export const inr = (p:number) => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',minimumFractionDigits:0,maximumFractionDigits:2}).format(p/100);
 export function PublicHeader() {
   const { me } = useAuth();
@@ -43,19 +44,6 @@ export function PublicHeader() {
       </nav>
     </div>
   </header>;
-}
-export function PublicFooter() {
-  return <footer className="academy-footer">
-    <div className="academy-container academy-footer-inner">
-      <Link to="/"><Brand/></Link>
-      <span>© {new Date().getFullYear()} Aspireedge Pvt. Ltd.</span>
-      <nav aria-label="Footer navigation">
-        <Link to="/about">About</Link>
-        <Link to="/faq">FAQ</Link>
-        <Link to="/contact">Contact</Link>
-      </nav>
-    </div>
-  </footer>;
 }
 export function CourseCard({course, base = '/courses'}:{course:Course; base?: string}){return <Link className="academy-course-card" to={`${base}/${course.id}`}><div className="academy-cover">{course.thumbnailUrl?<img alt="" src={course.thumbnailUrl} loading="lazy"/>:<BookOpen size={42}/>}</div><div className="academy-card-inner"><span className="academy-chip">{course.category || courseTrackInfo(course.track)?.title || 'Online course'} · {course.level.toLowerCase()}</span><h3>{course.title}</h3><p>{course.previewText||course.description||'Learn practical skills with Aspireedge.'}</p><div className="academy-course-bottom"><strong>{course.pricePaise===0?'Free':inr(course.pricePaise)}</strong><span>Explore <ArrowRight size={15}/></span></div></div></Link>}
 function TrackLinks({ base, selected }: { base: string; selected?: CourseTrack }) {
@@ -119,7 +107,6 @@ export function Landing() {
         ) : <EmptyState title="Courses coming soon" subtitle="Check back for published courses."/>}
       </section>
     </main>
-    <PublicFooter/>
   </>;
 }
 export function Catalog({ student = false }: { student?: boolean }) {
@@ -191,20 +178,32 @@ export function Catalog({ student = false }: { student?: boolean }) {
         <button className="academy-small-button" disabled={page >= result.meta.pages} onClick={() => updateQuery('page', String(page + 1))}>Next page</button>
       </div>}
     </Container>
-    {!student && <PublicFooter/>}
   </>;
 }
 export function CourseDetails({ student = false }: { student?: boolean }) {
- const Container = student ? 'section' : 'main';const {id}=useParams();const {me}=useAuth();const navigate=useNavigate();const [course,setCourse]=useState<Course|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [method,setMethod]=useState('UPI');const [reference,setReference]=useState('');const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const [preview,setPreview]=useState<{title:string;content:string|null;contentUrl:string|null;kind:string}|null>(null);const [hasAccess,setHasAccess]=useState(false);
- useEffect(()=>{setLoading(true);api<ApiOne<Course>>(`/academy/courses/${id}`).then(r=>setCourse(r.data)).catch(e=>setError(messageFromError(e))).finally(()=>setLoading(false));},[id]);
- useEffect(()=>{if(me?.scope==='STUDENT'){api<ApiOne<{courses:{id:string;accessStatus:string}[]}>>('/academy/student/dashboard').then(r=>setHasAccess(r.data.courses.some(c=>c.id===id&&c.accessStatus==='ACTIVE'))).catch(()=>{});}else setHasAccess(false);},[me,id]);
- async function order(){if(hasAccess){navigate(`/student/learn/${id}`);return;}if(!me){navigate('/register');return;}if(me.scope!=='STUDENT'){setError('Student account required to request access.');return;}setBusy(true);setError('');try{if(course?.pricePaise===0){await api(`/academy/student/courses/${id}/enroll-free`,{method:'POST'});navigate(`/student/learn/${id}`);return;}await api('/academy/student/orders',{method:'POST',body:JSON.stringify({courseId:id,paymentMethod:method,paymentReference:reference})});setNotice('Request submitted. Your administrator will verify the offline payment and enable course access.');}catch(e){setError(messageFromError(e));}finally{setBusy(false)}}
+ const Container = student ? 'section' : 'main';const {id}=useParams();const {me, loading: authLoading}=useAuth();const navigate=useNavigate();const [course,setCourse]=useState<Course|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [method,setMethod]=useState<'CASH' | 'UPI' | 'RAZORPAY'>('CASH');const companyQr = import.meta.env.VITE_COMPANY_PAYMENT_QR_URL?.trim();const [reference,setReference]=useState('');const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const [preview,setPreview]=useState<{title:string;content:string|null;contentUrl:string|null;resources:LessonResource[];kind:string}|null>(null);
+ const hasAccess = course?.hasAccess === true;
+ useEffect(() => {
+  if (authLoading) return;
+  const controller = new AbortController();
+  setCourse(null);
+  setLoading(true);
+  setError('');
+  setNotice('');
+  setPreview(null);
+  api<ApiOne<Course>>(`/academy/courses/${id}`, { signal: controller.signal })
+   .then(result => { if (!controller.signal.aborted) setCourse(result.data); })
+   .catch(error => { if (!controller.signal.aborted) setError(messageFromError(error)); })
+   .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+  return () => controller.abort();
+ }, [authLoading, id, me?.user.id]);
+ async function order(){if(!me){navigate('/register');return;}if(me.scope!=='STUDENT'){setError('Student account required to request access.');return;}setBusy(true);setError('');try{if(course?.pricePaise===0){await api(`/academy/student/courses/${id}/enroll-free`,{method:'POST'});navigate(`/student/learn/${id}`);return;}await api('/academy/student/orders',{method:'POST',body:JSON.stringify({courseId:id,paymentMethod:method,paymentReference:method === 'UPI' ? reference.trim() : undefined})});setNotice('Request submitted. Your administrator will verify the offline payment and enable course access.');}catch(e){setError(messageFromError(e));}finally{setBusy(false)}}
  async function checkout() {
   if (!me) { navigate('/register'); return; }
-  if (me.scope !== 'STUDENT' || !id || busy) return;
+  if (me.scope !== 'STUDENT' || !id || busy || !course?.onlineCheckout || !course.razorpayQuote) return;
   setBusy(true); setError('');
   try {
-    const payment = await payForCourse(id);
+    const payment = await payForCourse(id, course.razorpayQuote.totalPaise);
     if (payment) navigate(`/student/learn/${payment.courseId}`);
   } catch (err) {
     setError(err instanceof ApiError && err.code === 'PAYMENT_NOT_CONFIRMED'
@@ -214,9 +213,44 @@ export function CourseDetails({ student = false }: { student?: boolean }) {
     setBusy(false);
   }
  }
- async function viewPreview(lessonId:string){try{const r=await api<ApiOne<{title:string;content:string|null;contentUrl:string|null;kind:string}>>(`/academy/courses/${id}/preview/${lessonId}`);setPreview(r.data);}catch(e){setError(messageFromError(e));}}
- return <>{!student && <PublicHeader/>}<Container className={student ? "student-catalog" : "academy-container academy-section public-content"}>{loading?<Skeleton/>:error&&!course?<Alert message={error}/>:course&&<><Link to={`${student ? "/student/courses" : "/courses"}?track=${course.track}`} className="academy-back">Back to {courseTrackInfo(course.track)?.title ?? "courses"}</Link><div className="academy-detail-grid"><div><span className="academy-chip">{courseTrackInfo(course.track)?.title ?? 'Online course'} · {course.level}</span>{course.category && <p className="academy-muted">Topic: {course.category}</p>}<h1>{course.title}</h1><p className="academy-lead">{course.description||course.previewText||'Learn at your own pace.'}</p><div className="academy-detail-meta"><span><Clock size={17}/>{course.durationHours||'Self-paced'} {course.durationHours?'hours':''}</span><span><BookOpen size={17}/>{course.modules?.reduce((n,m)=>n+m.lessons.length,0)||0} lessons</span></div>{course.instructor&&<p><strong>Instructor:</strong> {course.instructor}</p>}{course.learningObjectives?.length>0&&<><h2>What you will learn</h2><ul>{course.learningObjectives.map((objective,index)=><li key={index}>{objective}</li>)}</ul></>}<h2>Course syllabus</h2>{course.modules?.length?course.modules.map((m,i)=><div className="academy-module" key={m.id}><strong>Module {i+1}: {m.title}</strong>{m.lessons.length?m.lessons.map(l=><div key={l.id} className="academy-lesson-row"><PlayCircle size={16}/>{l.title}{l.isPreview&&<button className="academy-text-button" onClick={()=>viewPreview(l.id)}>Preview</button>}</div>):<p>Lessons coming soon</p>}</div>):<p className="academy-muted">Syllabus will be available soon.</p>}{preview&&<div className="academy-panel"><h3>{preview.title}</h3><p style={{whiteSpace:'pre-wrap'}}>{preview.content}</p>{preview.contentUrl&&<a href={preview.contentUrl} target="_blank" rel="noreferrer">Open preview resource</a>}<button onClick={()=>setPreview(null)} className="academy-text-button">Close preview</button></div>}</div><aside className="academy-panel academy-checkout"><h2>{course.pricePaise===0?'Free course':inr(course.pricePaise)}</h2><p>{course.pricePaise===0?'Start learning today, at no cost.':course.onlineCheckout ? 'Pay online for course access, or submit an offline payment request.' : 'Choose a payment method and submit a manual payment request.'}</p>{course.pricePaise!==0&&!hasAccess&&<>{course.onlineCheckout && <button className="primary-button academy-full" disabled={busy || me?.scope === 'PLATFORM'} onClick={() => void checkout()}>
-      {busy ? 'Please wait…' : me ? 'Pay with Razorpay' : 'Create account to pay online'}
-    </button>}
-    <div className="academy-notice">For offline payment, ask the administrator for verified payment instructions.</div><label>Offline payment method<select value={method} onChange={e=>setMethod(e.target.value)}><option value="UPI">UPI</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CASH">Cash</option><option value="OTHER">Other</option></select></label><label>Transaction reference (optional)<input value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference after payment"/></label></>}{error&&<Alert message={error}/>} {notice&&<Alert message={notice} success/>}<button className="primary-button academy-full" disabled={busy||!!notice} onClick={order}>{busy?'Submitting…':hasAccess?'Go to course':!me?'Create student account':course.pricePaise===0?'Enroll for free':'Request course access'}<ShoppingBag size={18}/></button><p className="academy-small">Offline requests require administrator verification. Online purchases activate after Razorpay confirms the payment.</p></aside></div></>}</Container>{!student && <PublicFooter/>}</>;
+ async function viewPreview(lessonId:string){try{const r=await api<ApiOne<{title:string;content:string|null;contentUrl:string|null;resources:LessonResource[];kind:string}>>(`/academy/courses/${id}/preview/${lessonId}`);setPreview(r.data);}catch(e){setError(messageFromError(e));}}
+ return <>{!student && <PublicHeader/>}<Container className={student ? "student-catalog" : "academy-container academy-section public-content"}>{(loading || authLoading || !!course && course.id !== id)?<Skeleton/>:error&&!course?<Alert message={error}/>:course&&<><Link to={`${student ? "/student/courses" : "/courses"}?track=${course.track}`} className="academy-back">Back to {courseTrackInfo(course.track)?.title ?? "courses"}</Link><div className="academy-detail-grid"><div><span className="academy-chip">{courseTrackInfo(course.track)?.title ?? 'Online course'} · {course.level}</span>{course.category && <p className="academy-muted">Topic: {course.category}</p>}<h1>{course.title}</h1><p className="academy-lead">{course.description||course.previewText||'Learn at your own pace.'}</p><div className="academy-detail-meta"><span><Clock size={17}/>{course.durationHours||'Self-paced'} {course.durationHours?'hours':''}</span><span><BookOpen size={17}/>{course.lessons?.length||0} lessons</span></div>{course.instructor&&<p><strong>Instructor:</strong> {course.instructor}</p>}{course.learningObjectives?.length>0&&<><h2>What you will learn</h2><ul>{course.learningObjectives.map((objective,index)=><li key={index}>{objective}</li>)}</ul></>}<h2>Course syllabus</h2>{course.lessons?.length ? <div className="academy-module">{course.lessons.map((lesson, index, lessons) => <div key={lesson.id} className="academy-lesson-row">
+  <PlayCircle size={16}/>{lesson.kind === 'VIDEO' && `Video ${lessons.slice(0, index + 1).filter(item => item.kind === 'VIDEO').length} · `}{lesson.title}
+  {lesson.isPreview && <button className="academy-text-button" onClick={() => viewPreview(lesson.id)}> {lesson.kind === 'VIDEO' ? 'Watch free preview' : 'Free preview'}</button>}
+ </div>)}</div> : <p className="academy-muted">Syllabus will be available soon.</p>}{preview&&<div className="academy-panel"><h3>{preview.title}</h3><p style={{whiteSpace:'pre-wrap'}}>{preview.content}</p>{preview.kind === 'VIDEO' && preview.contentUrl && <video controls playsInline preload="metadata" src={preview.contentUrl} style={{ width: '100%', display: 'block' }}/>}{preview.contentUrl&&<a href={preview.contentUrl} target="_blank" rel="noreferrer">Open preview resource</a>}{preview.resources.map(resource => <p key={resource.id}><a href={resource.url} target="_blank" rel="noreferrer">{resource.title} ({resource.kind})</a></p>)}<button onClick={()=>setPreview(null)} className="academy-text-button">Close preview</button></div>}</div><aside className="academy-panel academy-checkout">{hasAccess ? <>
+      <h2>You have course access</h2>
+      <Link className="primary-button academy-full" to={`/student/learn/${id}`}>Go to course</Link>
+    </> : <><h2>{course.pricePaise===0?'Free course':inr(course.pricePaise)}</h2><p>{course.pricePaise===0?'Start learning today, at no cost.':course.onlineCheckout ? 'Pay online for course access, or submit an offline payment request.' : 'Choose a payment method and submit a manual payment request.'}</p>{course.pricePaise!==0&&<><form id="course-access-request" onSubmit={event => {
+      event.preventDefault();
+      if (method === 'RAZORPAY') void checkout();
+      else void order();
+    }}>
+      <label>Payment method<select value={method} onChange={event => { setMethod(event.target.value as typeof method); setError(''); }}>
+        <option value="CASH">Cash</option>
+        <option value="UPI">Pay to company QR</option>
+        <option value="RAZORPAY">Razorpay</option>
+      </select></label>
+      {method === 'RAZORPAY' ? (
+        course.onlineCheckout && course.razorpayQuote ? <div className="academy-notice">
+          {course.razorpayQuote.surchargePaise === null ? <p>Existing Razorpay order</p> : <>
+            <p>Course price {inr(course.pricePaise)}</p>
+            <p>Razorpay surcharge (3.1%) {inr(course.razorpayQuote.surchargePaise)}</p>
+          </>}
+          <strong>Total {inr(course.razorpayQuote.totalPaise)}</strong>
+        </div> : <p className="academy-notice">Razorpay is currently unavailable. Choose Cash or company QR.</p>
+      ) : method === 'CASH' ? <p>Pay cash to the administrator, then request course access.</p> : <>
+        {companyQr ? <div className="academy-notice">
+          <p>Scan the company QR with your UPI app and pay {inr(course.pricePaise)}.</p>
+          <img src={companyQr} alt="Company UPI payment QR code" width={200} height={200} style={{ maxWidth: '100%', height: 'auto' }}/>
+        </div> : <p className="academy-notice">Ask the administrator for the company payment QR code.</p>}
+        <label>UPI transaction ID<input value={reference} onChange={event => setReference(event.target.value)}
+          placeholder="Enter the ID from your payment receipt" required={me?.scope === 'STUDENT'} maxLength={150}/></label>
+      </>}
+    </form></>}{error&&<Alert message={error}/>} {notice&&<Alert message={notice} success/>}
+    <button className="primary-button academy-full" disabled={busy || (method === 'RAZORPAY' && course.pricePaise > 0
+        ? !course.onlineCheckout || me?.scope === 'PLATFORM' : !!notice)}
+      type={course.pricePaise!==0 ? 'submit' : 'button'} form={course.pricePaise!==0 ? 'course-access-request' : undefined}
+      onClick={course.pricePaise===0 ? () => void order() : undefined}>
+      {busy?'Submitting...':!me?'Create student account':course.pricePaise===0?'Enroll for free':method==='RAZORPAY'?'Pay with Razorpay':'Request course access'}<ShoppingBag size={18}/>
+    </button>{course.pricePaise > 0 && <p className="academy-small">Offline requests require administrator verification. Online purchases activate after Razorpay confirms the payment.</p>}</>}</aside></div></>}</Container></>;
 }

@@ -27,7 +27,7 @@ export function Login() {
     <div className="auth-hero"><div className="mini-star"><Sparkles size={19}/> YOUR LEARNING OPERATING SYSTEM</div>
       <h1>All your learning.<br/><em>One powerful</em><br/>workspace.</h1><p>Manage companies, internships, courses and student success—all from one beautifully connected platform.</p>
       <div className="auth-feature"><span><ShieldCheck size={19}/></span><div><strong>Built for secure growth</strong><small>Enterprise-minded access and workspace isolation.</small></div></div>
-    </div><div className="auth-footer">© {new Date().getFullYear()} Aspireedge Learning Cloud <span>•</span> Built to scale</div></section>
+    </div></section>
     <section className="auth-right"><div className="login-wrap"><div className="mobile-brand"><Brand/></div><div className="welcome-icon"><LockKeyhole size={25}/></div><h2>Welcome back</h2><p className="auth-subtitle">Sign in to your Aspireedge workspace</p>
     <div className="login-switch"><button type="button" className={mode === 'PLATFORM' ? 'selected' : ''} onClick={() => setMode('PLATFORM')}><ShieldCheck size={17}/> Super Admin</button>
       <button type="button" className={mode === 'TENANT' ? 'selected' : ''} onClick={() => setMode('TENANT')}><Building2 size={17}/> Company Login</button></div>

@@ -32,10 +32,10 @@ function loadCheckout(): Promise<Checkout> {
   return checkoutScript;
 }
 
-export async function payForCourse(courseId: string) {
+export async function payForCourse(courseId: string, expectedAmount: number) {
   const Razorpay = await loadCheckout();
   const { data: order } = await api<ApiOne<CheckoutOrder>>('/payments/razorpay/orders', {
-    method: 'POST', body: JSON.stringify({ courseId }),
+    method: 'POST', body: JSON.stringify({ courseId, expectedAmount }),
   });
   const payment = await new Promise<CheckoutResult | null>(resolve => {
     new Razorpay({

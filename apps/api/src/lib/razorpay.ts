@@ -7,6 +7,15 @@ export function razorpayConfig() {
   return key && secret && webhookSecret ? { key, secret, webhookSecret } : null;
 }
 
+export function razorpayPrice(pricePaise: number) {
+  const surchargePaise = Math.round(pricePaise * 31 / 1000);
+  return { surchargePaise, totalPaise: pricePaise + surchargePaise };
+}
+
+export function razorpayCheckoutKey(key: string, userId: string, courseId: string) {
+  return `${key.startsWith('rzp_live_') ? 'live' : 'test'}:${userId}:${courseId}`;
+}
+
 export function requireRazorpay() {
   return razorpayConfig() ?? fail(503, 'PAYMENTS_UNAVAILABLE', 'Online checkout is temporarily unavailable.');
 }

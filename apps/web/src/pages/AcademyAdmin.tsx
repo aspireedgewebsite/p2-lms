@@ -1,17 +1,19 @@
+import { uploadCourseMedia } from '../lib/courseMedia';
 import { courseTrackInfo, courseTracks, type CourseTrack } from '../lib/courseTracks';
 import { StudentGenderField, type StudentGender } from '../components/StudentGenderField';
 import { FormEvent, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { BookOpen, GraduationCap, IndianRupee, Plus, ShoppingBag, X, UserRoundCheck, ArrowRight, LockKeyhole } from 'lucide-react';
 import { Alert, Badge, EmptyState, PageTitle, Skeleton, StatCard } from '../components/UI';
 import { api, messageFromError, type ApiList, type ApiOne } from '../lib/api';
 import { inr, type Course } from './Public';
 
-type Dashboard = {students:number;courses:number;publishedCourses:number;activeEnrollments:number;manualEnrollments:number;pendingOrders:number;recordedRevenuePaise:number;recordedPayments:number};
+type TrackStats = { track: CourseTrack; courses: number; published: number; draft: number; archived: number };
+type Dashboard = {tracks: TrackStats[];students:number;courses:number;publishedCourses:number;activeEnrollments:number;manualEnrollments:number;pendingOrders:number;recordedRevenuePaise:number;recordedPayments:number};
 type Student = {id:string;userId:string;studentCode:string;name:string;email:string;phone:string|null;gender:StudentGender|null;emailVerified:boolean;status:'ACTIVE'|'DISABLED'|'ARCHIVED';enrolledCourses:{id:string;title:string;status:string;expiresAt:string|null;source:string;completed:number;total:number;progressPercent:number}[]};
-type AdminCourse = Course & {_count?:{modules:number;directEnrollments:number}};
+type AdminCourse = Course & {_count?:{lessons:number;directEnrollments:number}};
 type Order = {id:string;amountPaise:number;status:'PENDING'|'PAID'|'CANCELLED';paymentMethod:string|null;paymentReference:string|null;createdAt:string;course:{title:string};user:{name:string;email:string;directStudent:{studentCode:string}|null}};
-export function AdminDashboard(){const [data,setData]=useState<Dashboard|null>(null);const [error,setError]=useState('');useEffect(()=>{api<ApiOne<Dashboard>>('/academy/admin/dashboard').then(r=>setData(r.data)).catch(e=>setError(messageFromError(e)));},[]);return <><PageTitle kicker="ACADEMY OVERVIEW" title="Your academy, at a glance" description="Monitor students, access, payments and learning content."/>{error&&<Alert message={error}/>} {!data?<Skeleton/>:<><div className="stat-grid"><StatCard title="Registered students" value={data.students} icon={<GraduationCap size={22}/>}/><StatCard title="Published courses" value={data.publishedCourses} icon={<BookOpen size={22}/>} tone="aqua"/><StatCard title="Active enrollments" value={data.activeEnrollments} icon={<UserRoundCheck size={22}/>} tone="violet"/><StatCard title="Pending payment requests" value={data.pendingOrders} icon={<ShoppingBag size={22}/>} tone="amber"/><StatCard title="Manually paid enrollments" value={data.manualEnrollments} icon={<LockKeyhole size={22}/>} tone="indigo"/><StatCard title="Recorded payments" value={inr(data.recordedRevenuePaise)} icon={<IndianRupee size={22}/>} tone="aqua"/></div><div className="academy-quick-links"><Link className="academy-panel" to="/admin/courses"><BookOpen/><strong>Manage courses</strong><p>Create and publish learning content.</p><ArrowRight size={17}/></Link><Link className="academy-panel" to="/admin/access"><UserRoundCheck/><strong>Grant course access</strong><p>Find a student by ID and unlock any course.</p><ArrowRight size={17}/></Link><Link className="academy-panel" to="/admin/students"><GraduationCap/><strong>Manage students</strong><p>Add students, update accounts, and review progress.</p><ArrowRight size={17}/></Link></div></>}</>}
+export function AdminDashboard(){const [data,setData]=useState<Dashboard|null>(null);const [error,setError]=useState('');useEffect(()=>{api<ApiOne<Dashboard>>('/academy/admin/dashboard').then(r=>setData(r.data)).catch(e=>setError(messageFromError(e)));},[]);return <><PageTitle kicker="ACADEMY OVERVIEW" title="Your academy, at a glance" description="Monitor students, access, payments and learning content."/>{error&&<Alert message={error}/>} {!data?<Skeleton/>:<><div className="stat-grid"><StatCard title="Registered students" value={data.students} icon={<GraduationCap size={22}/>}/><StatCard title="Published courses" value={data.publishedCourses} icon={<BookOpen size={22}/>} tone="aqua"/><StatCard title="Active enrollments" value={data.activeEnrollments} icon={<UserRoundCheck size={22}/>} tone="violet"/><StatCard title="Pending payment requests" value={data.pendingOrders} icon={<ShoppingBag size={22}/>} tone="amber"/><StatCard title="Manually paid enrollments" value={data.manualEnrollments} icon={<LockKeyhole size={22}/>} tone="indigo"/><StatCard title="Recorded payments" value={inr(data.recordedRevenuePaise)} icon={<IndianRupee size={22}/>} tone="aqua"/></div><section className="academy-panel"><h2>Courses by track</h2><TrackCards stats={data.tracks}/></section><div className="academy-quick-links"><Link className="academy-panel" to="/admin/courses"><BookOpen/><strong>Manage courses</strong><p>Create and publish learning content.</p><ArrowRight size={17}/></Link><Link className="academy-panel" to="/admin/access"><UserRoundCheck/><strong>Grant course access</strong><p>Find a student by ID and unlock any course.</p><ArrowRight size={17}/></Link><Link className="academy-panel" to="/admin/students"><GraduationCap/><strong>Manage students</strong><p>Add students, update accounts, and review progress.</p><ArrowRight size={17}/></Link></div></>}</>}
 function CourseDialog({ title, busy, close, save, children }: {
   title: string;
   busy: boolean;
@@ -43,17 +45,118 @@ function CourseDialog({ title, busy, close, save, children }: {
   </dialog>;
 }
 
+function TrackCards({ stats }: { stats: TrackStats[] }) {
+ return <div className="course-track-grid">{courseTracks.map(item => {
+  const count = stats.find(row => row.track === item.id);
+  return <Link key={item.id} className="academy-panel course-track-link" to={`/admin/courses?track=${item.id}`}>
+   <strong>{item.title}</strong>
+   {count && <span>{count.courses} courses · {count.published} published · {count.draft} draft · {count.archived} archived</span>}
+  </Link>;
+ })}</div>;
+}
+
 const emptyForm = {title:'',description:'',previewText:'',category:'',track:'SKILL_BOOST' as CourseTrack,level:'BEGINNER',priceRupees:'',durationHours:'',thumbnailUrl:'',status:'DRAFT'};
-export function AdminCourses(){const [track,setTrack]=useState('');const [courses,setCourses]=useState<AdminCourse[]>([]);const [q,setQ]=useState('');const [search,setSearch]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [form,setForm]=useState(emptyForm);const [editing,setEditing]=useState<string|null>(null);const [open,setOpen]=useState(false);const [busy,setBusy]=useState(false);
-const load=useCallback(()=>{api<ApiList<AdminCourse>>(`/academy/admin/courses?pageSize=100&q=${encodeURIComponent(search)}${track ? "&track="+track : ""}`).then(r=>setCourses(r.data)).catch(e=>setError(messageFromError(e)));},[search,track]);useEffect(()=>{load()},[load]);
-function edit(c:AdminCourse){setError('');setEditing(c.id);setForm({title:c.title,description:c.description||'',previewText:c.previewText||'',category:c.category||'',track:c.track,level:c.level,priceRupees:(c.pricePaise/100).toString(),durationHours:c.durationHours?.toString()||'',thumbnailUrl:c.thumbnailUrl||'',status:c.status});setOpen(true)}
-async function save(e:FormEvent){e.preventDefault();if(busy)return;setBusy(true);setError('');try{const body={title:form.title,description:form.description,previewText:form.previewText,category:form.category,track:form.track,level:form.level,pricePaise:Math.round(Number(form.priceRupees||0)*100),durationHours:form.durationHours?Number(form.durationHours):null,thumbnailUrl:form.thumbnailUrl||null,status:form.status};await api(editing?`/academy/admin/courses/${editing}`:'/academy/admin/courses',{method:editing?'PATCH':'POST',body:JSON.stringify(body)});setOpen(false);setEditing(null);setForm(emptyForm);setNotice(editing?'Course updated.':'Course created.');load()}catch(err){setError(messageFromError(err))}finally{setBusy(false)}}
+export function AdminCourses(){
+ const [params] = useSearchParams();
+ const track = courseTrackInfo(params.get('track') ?? '')?.id ?? '';
+ const [stats, setStats] = useState<TrackStats[]>([]);
+ const [page, setPage] = useState(1);
+ const [pages, setPages] = useState(1);
+const [courses,setCourses]=useState<AdminCourse[]>([]);const [q,setQ]=useState('');const [search,setSearch]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [form,setForm]=useState(emptyForm);const [editing,setEditing]=useState<string|null>(null);const [open,setOpen]=useState(false);const [busy,setBusy]=useState(false);
+const navigate = useNavigate();
+const createdCourse = useRef<string | null>(null);
+const [thumbnail, setThumbnail] = useState<File>();
+const load = useCallback(async () => {
+ try {
+  if (!track) {
+   const result = await api<ApiOne<Dashboard>>('/academy/admin/dashboard');
+   setStats(result.data.tracks);
+   return;
+  }
+  const result = await api<ApiList<AdminCourse>>(`/academy/admin/courses?pageSize=20&page=${page}&q=${encodeURIComponent(search)}&track=${track}`);
+  setCourses(result.data);
+  setPages(result.meta.pages);
+ } catch (error) { setError(messageFromError(error)); }
+}, [search, track, page]);
+useEffect(() => { setPage(1); setQ(''); setSearch(''); setCourses([]); }, [track]);
+useEffect(() => { void load(); }, [load]);
+function edit(c:AdminCourse){createdCourse.current=null;setThumbnail(undefined);setError('');setEditing(c.id);setForm({title:c.title,description:c.description||'',previewText:c.previewText||'',category:c.category||'',track:c.track,level:c.level,priceRupees:(c.pricePaise/100).toString(),durationHours:c.durationHours?.toString()||'',thumbnailUrl:c.thumbnailUrl||'',status:c.status});setOpen(true)}
+async function save(event: FormEvent) {
+ event.preventDefault();
+ if (busy) return;
+ setBusy(true);
+ setError('');
+ try {
+  const courseId = editing ?? createdCourse.current;
+  const body = { title: form.title, description: form.description, previewText: form.previewText,
+   category: form.category, track: form.track, level: form.level, pricePaise: Math.round(Number(form.priceRupees || 0) * 100),
+   durationHours: form.durationHours ? Number(form.durationHours) : null, thumbnailUrl: form.thumbnailUrl || null, status: form.status };
+  const result = await api<ApiOne<AdminCourse>>(courseId ? `/academy/admin/courses/${courseId}` : '/academy/admin/courses', {
+   method: courseId ? 'PATCH' : 'POST', body: JSON.stringify(body),
+  });
+  const savedId = result.data.id;
+  if (!editing) createdCourse.current = savedId;
+  if (thumbnail) {
+   const asset = await uploadCourseMedia(savedId, thumbnail);
+   setForm(current => ({ ...current, thumbnailUrl: asset.url }));
+   setThumbnail(undefined);
+   await api(`/academy/admin/courses/${savedId}`, { method: 'PATCH', body: JSON.stringify({ thumbnailUrl: asset.url }) });
+  }
+  setOpen(false);
+  if (!editing) navigate(`/admin/courses/${savedId}`);
+  else { setNotice('Course updated.'); void load(); }
+ } catch (error) {
+  setError(messageFromError(error));
+  if (createdCourse.current) load();
+ } finally { setBusy(false); }
+}
 async function archive(c:AdminCourse){if(!window.confirm(`Archive ${c.title}? Existing enrollments remain recorded.`))return;try{await api(`/academy/admin/courses/${c.id}`,{method:'DELETE'});load();}catch(e){setError(messageFromError(e))}}
-return <><PageTitle kicker="COURSE MANAGEMENT" title="Courses" description="Create, edit, publish and archive the courses students can purchase." action={<button className="primary-button inline-button" onClick={()=>{setError('');setOpen(true);setEditing(null);setForm(emptyForm)}}><Plus size={17}/> Add course</button>}/>{!open&&error&&<Alert message={error} onClose={()=>setError('')}/>} {notice&&<Alert success message={notice} onClose={()=>setNotice('')}/>}
-<div className="academy-panel"><form className="academy-search" onSubmit={e=>{e.preventDefault();setSearch(q)}}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search courses" aria-label="Search courses"/><button className="primary-button">Search</button></form><label>Course type<select value={track} onChange={event => setTrack(event.target.value)}><option value="">All course types</option>{courseTracks.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><div className="academy-table-scroll"><table className="academy-table"><thead><tr><th>Course</th><th>Price</th><th>Status</th><th>Students</th><th>Actions</th></tr></thead><tbody>{courses.map(c=><tr key={c.id}><td><strong>{c.title}</strong><div className="academy-small">{courseTrackInfo(c.track)?.title}{c.category ? ` · ${c.category}` : ''}</div></td><td>{inr(c.pricePaise)}</td><td><Badge variant={c.status==='PUBLISHED'?'green':c.status==='DRAFT'?'amber':'red'}>{c.status}</Badge></td><td>{c._count?.directEnrollments||0}</td><td><div className="academy-actions"><Link className="academy-small-button" to={`/admin/courses/${c.id}`}>Content</Link><button className="academy-small-button" onClick={()=>edit(c)}>Edit</button>{c.status!=='ARCHIVED'&&<button className="academy-small-button academy-danger" onClick={()=>archive(c)}>Archive</button>}</div></td></tr>)}</tbody></table>{!courses.length&&<EmptyState title="No courses yet" subtitle="Click Add course to start selling your first course."/>}</div></div>
+async function setCourseStatus(course: AdminCourse, status: 'PUBLISHED' | 'DRAFT') {
+ try {
+  await api(`/academy/admin/courses/${course.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+  void load();
+ } catch (error) { setError(messageFromError(error)); }
+}
+return <><PageTitle kicker="COURSE MANAGEMENT" title={courseTrackInfo(track)?.title ?? 'Course tracks'}
+ description={track ? 'Manage courses in this track.' : 'Select a track to manage its courses.'}
+ action={track && <button className="primary-button inline-button" onClick={() => {
+  setError(''); createdCourse.current = null; setThumbnail(undefined); setEditing(null); setForm({ ...emptyForm, track }); setOpen(true);
+ }}><Plus size={17}/> Add course</button>}/>
+ {!open && error && <Alert message={error} onClose={() => setError('')}/>}
+ {notice && <Alert success message={notice} onClose={() => setNotice('')}/>}
+ {!track ? <TrackCards stats={stats}/> : <section className="academy-panel">
+  <Link className="academy-small-button" to="/admin/courses">All tracks</Link>
+  <form className="academy-search" onSubmit={event => { event.preventDefault(); setPage(1); setSearch(q); }}>
+   <input value={q} onChange={event => setQ(event.target.value)} placeholder="Search courses" aria-label="Search courses"/>
+   <button className="primary-button">Search</button>
+  </form>
+  <div className="academy-table-scroll"><table className="academy-table">
+   <thead><tr><th>Course</th><th>Price</th><th>Status</th><th>Students</th><th>Actions</th></tr></thead>
+   <tbody>{courses.map(course => <tr key={course.id}>
+    <td><strong>{course.title}</strong>{course.category && <div className="academy-small">{course.category}</div>}</td>
+    <td>{inr(course.pricePaise)}</td>
+    <td><Badge variant={course.status === 'PUBLISHED' ? 'green' : course.status === 'DRAFT' ? 'amber' : 'red'}>{course.status}</Badge></td>
+    <td>{course._count?.directEnrollments ?? 0}</td>
+    <td><div className="academy-actions">
+     <Link className="academy-small-button" to={`/admin/courses/${course.id}`}>Content</Link>
+     <button className="academy-small-button" onClick={() => edit(course)}>Edit</button>
+     <button className="academy-small-button" onClick={() => void setCourseStatus(course, course.status === 'DRAFT' ? 'PUBLISHED' : 'DRAFT')}>
+      {course.status === 'DRAFT' ? 'Publish' : course.status === 'ARCHIVED' ? 'Restore as draft' : 'Unpublish'}
+     </button>
+     {course.status !== 'ARCHIVED' && <button className="academy-small-button academy-danger" onClick={() => void archive(course)}>Archive</button>}
+    </div></td>
+   </tr>)}</tbody>
+  </table></div>
+  {!courses.length && <EmptyState title="No courses found" subtitle="Add a course or search for another title."/>}
+  {pages > 1 && <div className="academy-actions">
+   <button className="academy-small-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+   <span>Page {page} of {pages}</span>
+   <button className="academy-small-button" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
+  </div>}
+ </section>}
 {open && <CourseDialog title={editing ? 'Edit course' : 'Create a course'} busy={busy} close={() => { setOpen(false); setError(''); }} save={save}>
 {error && <div className="academy-wide"><Alert message={error}/></div>}
-<label>Course title<input required minLength={3} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Course type<select value={form.track} onChange={event=>setForm({...form,track:event.target.value as CourseTrack})}>{courseTracks.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label>Topic<input value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></label><label>Price (₹)<input type="number" min="0" step="0.01" value={form.priceRupees} onChange={e=>setForm({...form,priceRupees:e.target.value})}/></label><label>Duration (hours)<input type="number" min="1" value={form.durationHours} onChange={e=>setForm({...form,durationHours:e.target.value})}/></label><label>Level<select value={form.level} onChange={e=>setForm({...form,level:e.target.value})}><option value="BEGINNER">Beginner</option><option value="INTERMEDIATE">Intermediate</option><option value="ADVANCED">Advanced</option></select></label><label>Status<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="DRAFT">Draft</option><option value="PUBLISHED">Published</option><option value="ARCHIVED">Archived</option></select></label><label className="academy-wide">Thumbnail URL (optional)<input type="url" value={form.thumbnailUrl} onChange={e=>setForm({...form,thumbnailUrl:e.target.value})}/></label><label className="academy-wide">Short summary<textarea value={form.previewText} onChange={e=>setForm({...form,previewText:e.target.value})} rows={2}/></label><label className="academy-wide">Course description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={4}/></label></CourseDialog>}</>}
+<label>Course title<input required minLength={3} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Course type<select value={form.track} onChange={event=>setForm({...form,track:event.target.value as CourseTrack})}>{courseTracks.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label>Price (₹)<input type="number" min="0" step="0.01" value={form.priceRupees} onChange={e=>setForm({...form,priceRupees:e.target.value})}/></label><label>Duration (hours)<input type="number" min="1" value={form.durationHours} onChange={e=>setForm({...form,durationHours:e.target.value})}/></label><label>Level<select value={form.level} onChange={e=>setForm({...form,level:e.target.value})}><option value="BEGINNER">Beginner</option><option value="INTERMEDIATE">Intermediate</option><option value="ADVANCED">Advanced</option></select></label><label>Status<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="DRAFT">Draft</option><option value="PUBLISHED">Published</option><option value="ARCHIVED">Archived</option></select></label><label className="academy-wide">Short summary<textarea value={form.previewText} onChange={e=>setForm({...form,previewText:e.target.value})} rows={2}/></label><label className="academy-wide">Course description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={4}/></label><label className="academy-wide">Thumbnail image (PNG or JPEG)<input type="file" accept="image/png,image/jpeg" disabled={busy} onChange={event => setThumbnail(event.target.files?.[0])}/></label><label className="academy-wide">Thumbnail URL (optional)<input type="url" value={form.thumbnailUrl} onChange={e=>setForm({...form,thumbnailUrl:e.target.value})}/></label><label>Topic<input value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></label></CourseDialog>}</>}
 
 export function AdminStudents() {
  const [history,setHistory]=useState<{id:string;action:string;actor:string;createdAt:string;metadata:{reason?:string;note?:string}|null}[]>([]);
@@ -124,6 +227,21 @@ export function AdminStudents() {
    load();
   } catch (err) { setError(messageFromError(err)); }
  }
+ async function deleteStudent(student: Student) {
+  if (!window.confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
+  setBusy(true);
+  setError('');
+  setNotice('');
+  try {
+   await api(`/academy/admin/students/${student.id}/permanent`, { method: 'DELETE' });
+   setSelected(null);
+   setEditor(null);
+   setNotice('Student deleted.');
+   if (data.length === 1 && page > 1) setPage(page - 1);
+   else load();
+  } catch (err) { setError(messageFromError(err)); }
+  finally { setBusy(false); }
+ }
  async function restore(enrollmentId:string){const reason=window.prompt('Reason for restoring course access:');if(!reason||reason.trim().length<3)return;try{await api(`/academy/admin/enrollments/${enrollmentId}/restore`,{method:'POST',body:JSON.stringify({reason})});load()}catch(e){setError(messageFromError(e))}}
  async function showHistory(enrollmentId:string){try{const r=await api<ApiOne<typeof history>>(`/academy/admin/enrollments/${enrollmentId}/history`);setHistory(r.data)}catch(e){setError(messageFromError(e))}}
  async function toggle(s:Student) {
@@ -180,6 +298,7 @@ export function AdminStudents() {
       <button className="academy-small-button" onClick={() => openEditor(s)}>Edit</button>
       <button className="academy-small-button" onClick={() => toggle(s)}>{s.status === 'ARCHIVED' ? 'Restore' : s.status === 'ACTIVE' ? 'Disable' : 'Enable'}</button>
       {s.status !== 'ARCHIVED' && <button className="academy-small-button academy-danger" onClick={() => void archiveStudent(s)}>Archive</button>}
+      <button className="academy-small-button academy-danger" disabled={busy} onClick={() => void deleteStudent(s)}>Delete</button>
      </div></td>
     </tr>)}</tbody>
    </table></div>

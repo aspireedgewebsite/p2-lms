@@ -10,7 +10,7 @@ A source-code update to the original Aspireedge internship LMS starter. The new 
 - Student self-registration with password hashing, unique random Student ID, student sign-in and secure server-side session cookies.
 - Single administrator sign-in reusing your already-seeded `SUPER_ADMIN` account.
 - Admin dashboard with actual database counts; no fake revenue data.
-- Admin course create/edit/publish/archive; module and lesson authoring (text, external video and link).
+- Admin course create/edit/publish/archive; direct video lesson authoring and PDF/PowerPoint resources.
 - Admin searchable student directory including course enrollment source and completion percentage.
 - Admin access grant via Student ID for **verified offline payment** or **complimentary access**, plus revocation. Historic progress remains after revocation.
 - Student can enroll directly in published free courses.
@@ -81,7 +81,7 @@ Your previous seeded Super Admin account is preserved. The seed script deliberat
 ## Test the primary workflow
 
 1. Sign in with the seeded Super Admin credentials at `/login`. The correct destination is `/admin`.
-2. From Admin → Courses, create a course, publish it, then click **Content** and add a module and lessons.
+2. From Admin → Courses, select a course track, create a course, and add videos and their resources in **Content**. Publish the videos and course when ready.
 3. Sign out. Register a different email at `/register`. Note the displayed unique Student ID in `/student`.
 4. Open `/courses`, choose the published paid course and submit an **offline payment request**. This does *not* grant access yet.
 5. As admin, open Payment Requests; independently verify that payment was received, then click **Verify & grant**, or use Admin → Grant Course Access with the Student ID for a verified manual payment or complimentary grant.

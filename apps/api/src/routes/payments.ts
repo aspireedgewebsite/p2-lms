@@ -5,14 +5,16 @@ import { asyncRoute, fail } from '../lib/http.js';
 import { requireStudent } from '../middleware/auth.js';
 import { enrollmentActive } from '../lib/enrollment.js';
 import {
-  createRazorpayOrder, fetchRazorpayPayment, paymentId, providerPayment, requireRazorpay, validRazorpaySignature,
+  createRazorpayOrder, fetchRazorpayPayment, paymentId, providerPayment, razorpayCheckoutKey, razorpayPrice, requireRazorpay, validRazorpaySignature,
 } from '../lib/razorpay.js';
 
 const router = Router();
 router.use(requireStudent);
 
 router.post('/orders', asyncRoute(async (req, res) => {
-  const { courseId } = z.object({ courseId: z.string().uuid() }).strict().parse(req.body);
+  const { courseId, expectedAmount } = z.object({
+    courseId: z.string().uuid(), expectedAmount: z.number().int().positive().optional(),
+  }).strict().parse(req.body);
   const { userId } = req.auth!;
   const { key } = requireRazorpay();
   const order = await prisma.$transaction(async tx => {
@@ -21,15 +23,17 @@ router.post('/orders', asyncRoute(async (req, res) => {
       select: { title: true, pricePaise: true },
     });
     if (!course || course.pricePaise <= 0) fail(404, 'PAID_COURSE_NOT_FOUND', 'Paid course not found.');
-    const mode = key.startsWith('rzp_live_') ? 'live' : 'test';
-    const checkoutKey = `${mode}:${userId}:${courseId}`;
+    const checkoutKey = razorpayCheckoutKey(key, userId, courseId);
     const pending = await tx.courseOrder.upsert({
       where: { checkoutKey },
-      create: { checkoutKey, userId, courseId, amountPaise: course.pricePaise, paymentMethod: 'RAZORPAY' },
+      create: { checkoutKey, userId, courseId, amountPaise: razorpayPrice(course.pricePaise).totalPaise, paymentMethod: 'RAZORPAY' },
       update: { checkoutKey },
     });
     if (enrollmentActive(await tx.directEnrollment.findUnique({ where: { userId_courseId: { userId, courseId } } }))) {
       fail(409, 'ALREADY_ENROLLED', 'You already have access to this course.');
+    }
+    if (expectedAmount !== undefined && expectedAmount !== pending.amountPaise) {
+      fail(409, 'CHECKOUT_AMOUNT_CHANGED', 'The Razorpay total changed. Refresh this page to review the new amount.');
     }
     if (pending.razorpayOrderId) return { ...pending, title: course.title };
     const provider = await createRazorpayOrder(pending.id, pending.amountPaise);

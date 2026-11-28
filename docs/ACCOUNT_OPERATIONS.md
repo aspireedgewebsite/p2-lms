@@ -49,6 +49,6 @@ This is a local development setup, not an approved production deployment. See KN
 
 ## Local course files
 
-The course builder accepts PDF, MP4 and WebM lesson uploads up to 50 MB. `POST /api/v1/media/courses/:courseId` is admin-only, CSRF protected and checks the file signature. Use the file MIME type as Content-Type and raw bytes as the request body. It returns a URL to attach to the lesson. The adapter also accepts PNG/JPEG through the API; thumbnail upload UI is not complete.
+The course builder accepts MP4 and WebM videos up to 500 MB per file and PDF or PowerPoint files up to 50 MB. Videos are ordered directly within the course. Attach multiple files under the relevant lesson. `POST /api/v1/media/courses/:courseId` is admin-only, CSRF protected and checks the file signature. Use the file MIME type as Content-Type and raw bytes as the request body. It returns a URL to attach to the lesson. The adapter also accepts PNG/JPEG through the API; thumbnail upload UI is not complete.
 
 `GET /api/v1/media/:id` checks the owning course, attachment to a lesson, preview status, student session and active enrollment before serving bytes. It supports Express byte ranges for video and disables cache storage. Files are stored in `apps/api/.local-storage/`, outside the public web directory. Metadata and content have private filesystem permissions. Never serve this directory statically. API_ORIGIN defaults to http://localhost:4000; configure it consistently before uploading files. Local uploads are disabled in production.

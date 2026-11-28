@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { groupLinks } from '../lib/groupLinks';
-import { PublicFooter, PublicHeader } from './Public';
+import { PublicHeader } from './Public';
 
 const questions = [
   ['How do I start learning?', 'Create a student account, browse the course catalog, and enroll in a free course or request access to a paid course.'],
@@ -37,5 +37,5 @@ export function Information({ page }: { page: 'faq' | 'about' | 'contact' }) {
       </div>
       <p>{groupLinks.email}</p>
     </section>}
-  </main><PublicFooter/></>;
+  </main></>;
 }

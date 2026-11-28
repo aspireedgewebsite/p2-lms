@@ -21,3 +21,7 @@ export function gradeQuiz(questions: z.infer<typeof questionListSchema>, answers
   }
   return Math.round(correct / questions.length * 100);
 }
+
+export function quizAudience(userId: string) {
+  return [{ assignmentOnly: false }, { studentAssignments: { some: { userId } } }];
+}

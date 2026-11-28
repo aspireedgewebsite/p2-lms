@@ -118,8 +118,18 @@ try {
   const assetPath = new URL(file.body.data.url).pathname;
   status(await request(app).get(assetPath), 403);
   status(await request(app).post(`/api/v1/media/courses/${courseId}`).set('Cookie', cookie(mediaStudent)).set('X-CSRF-Token', mediaStudent.body.data.csrfToken).set('Content-Type', 'application/pdf').send(Buffer.from('%PDF-1.7')), 403);
-  const moduleResponse = await request(app).post(`/api/v1/academy/admin/courses/${courseId}/modules`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ title: 'First module' }); status(moduleResponse, 201);
-  const lessonResponse = await request(app).post(`/api/v1/academy/admin/modules/${moduleResponse.body.data.id}/lessons`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ title: 'PDF resource', kind: 'LINK', contentUrl: file.body.data.url }); status(lessonResponse, 201);
+  const adminHeaders = { Cookie: cookie(recovered), 'X-CSRF-Token': recovered.body.data.csrfToken };
+  const lessonResponse = await request(app).post(`/api/v1/academy/admin/courses/${courseId}/videos`).set(adminHeaders)
+    .send({ title: 'First video', contentUrl: 'https://example.invalid/lesson.mp4', published: true });
+  status(lessonResponse, 201);
+  const resourcesPath = `/api/v1/academy/admin/lessons/${lessonResponse.body.data.id}/resources`;
+  const resource = await request(app).post(resourcesPath).set(adminHeaders).send({ title: 'Worksheet', kind: 'PDF', url: file.body.data.url });
+  status(resource, 201);
+  const slides = await request(app).post(resourcesPath).set(adminHeaders).send({ title: 'Slides', kind: 'PPT', url: 'https://example.invalid/slides.pptx' });
+  status(slides, 201);
+  status(await request(app).patch(`${resourcesPath}/${slides.body.data.id}`).set(adminHeaders).send({ title: 'Updated slides', url: 'https://example.invalid/updated.pptx' }), 200);
+  status(await request(app).delete(`${resourcesPath}/${slides.body.data.id}`).set(adminHeaders), 200);
+  status(await request(app).post(resourcesPath).set('Cookie', cookie(mediaStudent)).set('X-CSRF-Token', mediaStudent.body.data.csrfToken).send({ title: 'Unauthorized', kind: 'PDF', url: file.body.data.url }), 403);
   status(await request(app).get(assetPath).set('Cookie', cookie(mediaStudent)), 403);
   const enrollment = await prisma.directEnrollment.create({ data: { userId: student.userId, courseId, source: 'COMPLIMENTARY' } });
   status(await request(app).get(assetPath).set('Cookie', cookie(mediaStudent)), 200);
@@ -170,7 +180,7 @@ try {
   status(await request(app).post('/api/v1/certificates/admin/templates').set('Cookie',cookie(mediaStudent)).set('X-CSRF-Token',mediaStudent.body.data.csrfToken).send(templateData),403);
   status(await request(app).put(`/api/v1/certificates/admin/courses/${courseId}/template`).set('Cookie',cookie(recovered)).set('X-CSRF-Token',recovered.body.data.csrfToken).send({templateId:templateResponse.body.data.id}),200);
   const certificateInput={studentCode:student.studentCode,courseId};
-  const incompleteLesson=await prisma.lesson.create({data:{title:'Incomplete lesson',moduleId:moduleResponse.body.data.id}});
+  const incompleteLesson=await prisma.lesson.create({data:{title:'Incomplete lesson',courseId,published:true,position:1}});
   status(await request(app).post('/api/v1/certificates/admin/issue').set('Cookie',cookie(recovered)).set('X-CSRF-Token',recovered.body.data.csrfToken).send(certificateInput),409);
   await prisma.lesson.update({where:{id:incompleteLesson.id},data:{archivedAt:new Date()}});
   await prisma.quizAttempt.update({where:{id:attemptResponse.body.data.id},data:{passed:false}});
@@ -208,8 +218,8 @@ try {
   const publicDetail = await request(app).get(`/api/v1/academy/courses/${courseId}`); status(publicDetail, 200);
   assert.equal(publicDetail.body.data.instructor, 'Test instructor'); assert.deepEqual(publicDetail.body.data.learningObjectives, ['Learn safely']);
   const filtered = await request(app).get('/api/v1/academy/courses?category=Integration'); status(filtered, 200); assert.ok(filtered.body.data.some((c: {id: string}) => c.id === courseId));
-  status(await request(app).patch(`/api/v1/academy/admin/modules/${moduleResponse.body.data.id}/lesson-order`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ ids: [lessonId, lessonId] }), 422);
-  status(await request(app).patch(`/api/v1/academy/admin/modules/${moduleResponse.body.data.id}/lesson-order`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ ids: [lessonId, incompleteLesson.id] }), 200);
+  status(await request(app).patch(`/api/v1/academy/admin/courses/${courseId}/lesson-order`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ ids: [lessonId, lessonId] }), 422);
+  status(await request(app).patch(`/api/v1/academy/admin/courses/${courseId}/lesson-order`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ ids: [lessonId, incompleteLesson.id] }), 200);
   status(await request(app).patch(`/api/v1/academy/admin/lessons/${lessonId}/archive`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ archived: true }), 200);
   status(await request(app).get(assetPath).set('Cookie', cookie(mediaStudent)), 403);
   status(await request(app).post(`/api/v1/academy/student/lessons/${lessonId}/complete`).set('Cookie', cookie(mediaStudent)).set('X-CSRF-Token', mediaStudent.body.data.csrfToken), 404);
@@ -218,9 +228,17 @@ try {
   const archivedCourse = archivedDashboard.body.data.courses.find((c: {id: string}) => c.id === courseId); assert.equal(archivedCourse.totalLessons, 0); assert.equal(archivedCourse.completedLessons, 0);
   status(await request(app).patch(`/api/v1/academy/admin/lessons/${lessonId}/archive`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ archived: false }), 200);
   const restoredCourse = await request(app).get(`/api/v1/academy/student/courses/${courseId}`).set('Cookie', cookie(mediaStudent)); status(restoredCourse, 200); assert.equal(restoredCourse.body.data.progress.length, 1);
-  status(await request(app).patch(`/api/v1/academy/admin/modules/${moduleResponse.body.data.id}/archive`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ archived: true }), 200);
+  status(await request(app).patch(`/api/v1/academy/admin/lessons/${lessonId}`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ published: false }), 200);
   status(await request(app).get(assetPath).set('Cookie', cookie(mediaStudent)), 403);
-  status(await request(app).patch(`/api/v1/academy/admin/modules/${moduleResponse.body.data.id}/archive`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ archived: false }), 200);
+  status(await request(app).patch(`/api/v1/academy/admin/lessons/${lessonId}`).set('Cookie', cookie(recovered)).set('X-CSRF-Token', recovered.body.data.csrfToken).send({ published: true }), 200);
+
+  assert.equal(restoredCourse.body.data.course.lessons[0].resources[0].id, resource.body.data.id);
+  status(await request(app).patch(`/api/v1/academy/admin/courses/${courseId}`).set(adminHeaders).send({ track: 'CAREER_LAUNCH' }), 200);
+  status(await request(app).patch(`/api/v1/academy/admin/courses/${courseId}`).set(adminHeaders).send({ track: 'INVALID' }), 422);
+  const moved = await request(app).get('/api/v1/academy/courses?track=CAREER_LAUNCH&q=Integration%20media%20course');
+  status(moved, 200);
+  assert.ok(moved.body.data.some((course: {id: string}) => course.id === courseId));
+  assert.equal(await prisma.lessonProgress.count({ where: { enrollmentId: enrollment.id, lessonId } }), 1);
   await prisma.directEnrollment.update({ where: { id: enrollment.id }, data: { expiresAt: new Date(0) } });
   status(await request(app).get(assetPath).set('Cookie', cookie(mediaStudent)), 403);
   status(await request(app).get(`/api/v1/academy/student/courses/${courseId}`).set('Cookie', cookie(mediaStudent)), 403);
@@ -237,7 +255,7 @@ try {
   status(await request(app).get(assetPath), 403);
   const mailbox = await mkdtemp(join(tmpdir(), 'aspireedge-mail-test-'));
   try {
-    execFileSync(resolve('../../node_modules/.bin/tsx'), [resolve('prisma/deliver-local-mail.ts')], { cwd: mailbox, env: process.env, stdio: 'pipe' });
+    execFileSync(process.execPath, [resolve('../../node_modules/tsx/dist/cli.mjs'), resolve('prisma/deliver-local-mail.ts')], { cwd: mailbox, env: process.env, stdio: 'pipe' });
     const files = await readdir(join(mailbox, '.local-mail')); assert.ok(files.length > 0);
     assert.match(await readFile(join(mailbox, '.local-mail', files[0]!), 'utf8'), /Subject:/);
     assert.equal(await prisma.emailJob.count({ where: { deliveredAt: null } }), 0);

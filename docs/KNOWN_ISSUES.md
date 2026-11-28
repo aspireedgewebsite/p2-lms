@@ -7,7 +7,7 @@
 - Recovery responses do not reveal account existence in content, but production timing/abuse testing and distributed rate limiting remain.
 - Email jobs contain sensitive links until delivery, after which their bodies are redacted. Keep PostgreSQL and the private local mailbox restricted; add retention/cleanup policy before release.
 - Local delivery is a bounded one-shot worker with at most five attempts; production scheduling, exponential backoff, concurrent claims and failure monitoring remain Phase 8/9 work.
-- Existing external video/link URLs remain controlled by their external hosts. New local uploads use authorization-aware delivery, but production storage, malware scanning, quotas, streaming uploads beyond 50 MB and retention/orphan cleanup remain. Local files and JSON metadata must be backed up together with PostgreSQL.
+- Existing external video/link URLs remain controlled by their external hosts. New local uploads use authorization-aware delivery, but production storage, malware scanning, quotas and retention/orphan cleanup remain. Local files and JSON metadata must be backed up together with PostgreSQL.
 - Full browser end-to-end and responsive validation are incomplete. API integration tests are not a substitute for those checks.
 - Online checkout is intentionally disabled at the user’s request. Razorpay credentials, webhook setup and production hosting are not configured. Do not accept live online payments.
 - This folder sits inside a home-directory Git repository rather than an independent application repository. No broad staging or commits were made. Backups and local mail/storage are ignored by Git.

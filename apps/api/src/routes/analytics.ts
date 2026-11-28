@@ -1,3 +1,4 @@
+import { visibleLesson } from '../lib/lessons.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -11,12 +12,12 @@ router.get('/students/:id', asyncRoute(async (req, res) => {
     certificates: { select: { id: true, issuedAt: true, revokedAt: true, course: { select: { title: true } } }, orderBy: { issuedAt: 'desc' } },
     quizAttempts: { where: { quiz: { course: { tenantId: null } } }, select: { id: true, number: true, status: true, score: true, passed: true, submittedAt: true, quiz: { select: { title: true } } }, orderBy: { startedAt: 'desc' } },
     assignmentSubmissions: { where: { assignment: { course: { tenantId: null } } }, select: { id: true, submittedAt: true, assignment: { select: { title: true, maxScore: true } }, reviews: { select: { id: true, score: true, feedback: true, createdAt: true }, orderBy: { createdAt: 'desc' } } }, orderBy: { submittedAt: 'desc' } },
-    directEnrollments: { where: { course: { tenantId: null } }, include: { course: { select: { title: true, modules: { where: { archivedAt: null }, select: { lessons: { where: { archivedAt: null }, select: { id: true } } } } } }, progress: { include: { lesson: { select: { title: true, archivedAt: true } } } } } },
+    directEnrollments: { where: { course: { tenantId: null } }, include: { course: { select: { title: true, lessons: { where: visibleLesson, select: { id: true } } } }, progress: { include: { lesson: { select: { title: true, archivedAt: true } } } } } },
     directOrders: { where: { course: { tenantId: null } }, select: { id: true, amountPaise: true, status: true, paymentMethod: true, createdAt: true, course: { select: { title: true } } }, orderBy: { createdAt: 'desc' } },
   } } } });
   if (!student) fail(404, 'STUDENT_NOT_FOUND', 'Student not found.');
   const courses = student.user.directEnrollments.map(e => {
-    const visibleIds = new Set(e.course.modules.flatMap(m => m.lessons.map(l => l.id)));
+    const visibleIds = new Set(e.course.lessons.map(l => l.id));
     const completed = e.progress.filter(p => visibleIds.has(p.lessonId)).length;
     return { id: e.id, courseId: e.courseId, title: e.course.title, status: enrollmentStatus(e), source: e.source, enrolledAt: e.createdAt, expiresAt: e.expiresAt, lastActivityAt: e.lastActivityAt,
       totalLessons: visibleIds.size, completedLessons: completed, progressPercent: visibleIds.size ? Math.round(completed / visibleIds.size * 100) : 0,
@@ -37,10 +38,10 @@ router.get('/reports/enrollments', asyncRoute(async (req, res) => {
     ...(input.status === 'REVOKED' ? { status: 'REVOKED' as const } : input.status === 'EXPIRED' ? { status: 'ACTIVE' as const, expiresAt: { lte: now } } : input.status === 'ACTIVE' ? { status: 'ACTIVE' as const, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } : {}),
   };
   const records = await prisma.directEnrollment.findMany({ where, take: 5001, orderBy: input.sort === 'student' ? { user: { name: 'asc' } } : { createdAt: 'desc' }, include: {
-    user: { select: { name: true, email: true, directStudent: { select: { studentCode: true } } } }, course: { select: { title: true, modules: { where: { archivedAt: null }, select: { lessons: { where: { archivedAt: null }, select: { id: true } } } } } }, progress: { select: { lessonId: true } },
+    user: { select: { name: true, email: true, directStudent: { select: { studentCode: true } } } }, course: { select: { title: true, lessons: { where: visibleLesson, select: { id: true } } } }, progress: { select: { lessonId: true } },
   } });
   if (records.length > 5000) fail(422, 'REPORT_TOO_LARGE', 'Narrow the date range to export at most 5,000 enrollments.');
-  const rows = records.map(e => { const ids = new Set(e.course.modules.flatMap(m => m.lessons.map(l => l.id))); const completed = e.progress.filter(p => ids.has(p.lessonId)).length;
+  const rows = records.map(e => { const ids = new Set(e.course.lessons.map(l => l.id)); const completed = e.progress.filter(p => ids.has(p.lessonId)).length;
     return { id: e.id, studentId: e.user.directStudent?.studentCode || '', name: e.user.name, email: e.user.email, course: e.course.title, status: enrollmentStatus(e), source: e.source, enrolledAt: e.createdAt, expiresAt: e.expiresAt, lastActivityAt: e.lastActivityAt, completed, total: ids.size, progressPercent: ids.size ? Math.round(completed / ids.size * 100) : 0 };
   });
   if (input.format === 'csv') {

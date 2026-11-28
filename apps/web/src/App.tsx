@@ -1,3 +1,4 @@
+import { SiteFooter } from './components/SiteFooter';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/Layout';
@@ -11,7 +12,7 @@ import { AdminAssessments, StudentAssessments } from './pages/Assessments';
 import { AccountLink, Profile } from './pages/Account';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { Login, Register } from './pages/Access';
-import { Landing, Catalog, CourseDetails, PublicHeader, PublicFooter } from './pages/Public';
+import { Landing, Catalog, CourseDetails, PublicHeader } from './pages/Public';
 import { AdminDashboard, AdminCourses, AdminStudents, AdminOrders } from './pages/AcademyAdmin';
 import { StudentDashboard, StudentLearn, StudentOrders } from './pages/AcademyStudent';
 function Guard({ role }: { role: 'PLATFORM' | 'STUDENT' }) {
@@ -59,6 +60,6 @@ export default function App() {
      <Route path="/student/learn/:id" element={<StudentLearn/>}/>
      <Route path="/student/orders" element={<StudentOrders/>}/>
    </Route>
-   <Route path="*" element={<><PublicHeader/><main className="academy-container academy-section public-content"><h1>Page not found</h1><a className="primary-button inline-button" href="/">Return home</a></main><PublicFooter/></>}/>
- </Routes></AuthProvider></BrowserRouter>;
+   <Route path="*" element={<><PublicHeader/><main className="academy-container academy-section public-content"><h1>Page not found</h1><a className="primary-button inline-button" href="/">Return home</a></main></>}/>
+ </Routes><SiteFooter/></AuthProvider></BrowserRouter>;
 }
